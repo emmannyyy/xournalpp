@@ -14,6 +14,7 @@
 #include "gui/GladeGui.h"                            // for GladeGui
 #include "gui/sidebar/AbstractSidebarPage.h"         // for AbstractSidebar...
 #include "gui/sidebar/indextree/SidebarIndexPage.h"  // for SidebarIndexPage
+#include "gui/sidebar/marking/SidebarMarkingPage.h"  // for SidebarMarkingPage
 #include "model/Document.h"                          // for Document
 #include "model/XojPage.h"                           // for XojPage
 #include "pdf/base/XojPdfPage.h"                     // for XojPdfPageSPtr
@@ -40,6 +41,10 @@ void Sidebar::initTabs(GtkWidget* sidebarContents) {
     addTab(std::make_unique<SidebarPreviewPages>(this->control));
     addTab(std::make_unique<SidebarPreviewLayers>(this->control, false));
     addTab(std::make_unique<SidebarPreviewLayers>(this->control, true));
+    auto markingTab = std::make_unique<SidebarMarkingPage>(this->control);
+    this->markingPage = markingTab.get();
+    this->markingTabIndex = this->tabs.size();
+    addTab(std::move(markingTab));
 
     // Init toolbar with icons
 
@@ -112,6 +117,15 @@ void Sidebar::setSelectedTab(size_t tab) {
                 },
                 this);
     }
+}
+
+void Sidebar::openMarkingManifest(const fs::path& path) {
+    if (this->markingPage == nullptr) {
+        return;
+    }
+    this->markingPage->openManifest(path);
+    this->control->setShowSidebar(true);
+    this->setSelectedTab(this->markingTabIndex);
 }
 
 void Sidebar::updateVisibleTabs() {

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<marking version="1">
+  <assignment id="synthetic-debox" title="Synthetic humanities demo" student="Anonymous"
+              mode="debox" source-pdf="submission.pdf" cancelled-work-excluded="true"/>
+  <score awarded="1" max="2"/>
+  <parts>
+    <part id="q1-a" label="Question 1(a)" awarded="1" max="2"
+          rationale="One idea is complete and one needs development."/>
+  </parts>
+  <annotations>
+    <annotation id="a01" page="1" part-id="q1-a" verdict="correct" source="ai"
+                severity="minor" target-type="image" reviewed="true" awarded="1" max="1">
+      <box y0="145" x0="100" y1="205" x1="820"/>
+      <title>Accurate definition</title>
+      <comment>Correct. You identified scarcity and competing uses.</comment>
+      <how-to-improve>Keep the explanation linked to the question.</how-to-improve>
+      <evidence>Resources are scarce and have competing uses.</evidence>
+      <text-anchor block-id="p1-b1" exact="Resources are scarce and have competing uses."/>
+    </annotation>
+    <annotation id="a02" page="2" part-id="q1-a" verdict="partial" source="teacher"
+                severity="major" target-type="image" reviewed="true" awarded="0" max="1">
+      <box y0="145" x0="100" y1="215" x1="850"/>
+      <title>Complete the mechanism</title>
+      <comment>You stated the final effect but skipped the intermediate step.</comment>
+      <how-to-improve>Add the missing intermediate step.</how-to-improve>
+      <evidence>Therefore, price falls.</evidence>
+      <text-anchor block-id="p2-b1" exact="Therefore, price falls."/>
+    </annotation>
+  </annotations>
+</marking>

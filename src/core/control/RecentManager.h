@@ -26,7 +26,7 @@ class Control;
 namespace RecentManager {
 constexpr auto const* MIME = "application/x-xoj";
 constexpr auto const* MIME_PDF = "application/x-pdf";
-constexpr auto const* GROUP = "xournal++";
+constexpr auto const* GROUP = "studyszn-marker";
 constexpr int MAX_RECENT = 10;
 
 /**

@@ -1752,7 +1752,7 @@ bool Control::openXoptFile(fs::path filepath) {
 }
 
 void Control::openFileWithoutSavingTheCurrentDocument(fs::path filepath, bool attachToDocument, int scrollToPage,
-                                                      std::function<void(bool)> callback) {
+                                                      std::function<void(bool)> callback, bool autoloadPdfSidecar) {
     if (filepath.empty()) {
         this->replaceDocument(createNewDocument(this, fs::path(), std::nullopt), -1);
         callback(true);
@@ -1770,6 +1770,21 @@ void Control::openFileWithoutSavingTheCurrentDocument(fs::path filepath, bool at
         return;
     }
 
+    if (filepath.extension() == ".xoppmark") {
+        this->replaceDocument(createNewDocument(this, fs::path(), std::nullopt), -1);
+        try {
+            if (!this->sidebar) {
+                throw std::runtime_error("Marking sidebar is not available");
+            }
+            this->sidebar->openMarkingManifest(filepath);
+            callback(true);
+        } catch (const std::exception& exception) {
+            XojMsgBox::showErrorToUser(getGtkWindow(), exception.what());
+            callback(false);
+        }
+        return;
+    }
+
     if (filepath.extension() == ".xopt") {
         callback(this->openXoptFile(std::move(filepath)));
         return;
@@ -1781,7 +1796,7 @@ void Control::openFileWithoutSavingTheCurrentDocument(fs::path filepath, bool at
     }
 
     if (Util::hasPdfFileExt(filepath)) {
-        if (!attachToDocument && this->settings->isAutoloadPdfXoj()) {
+        if (autoloadPdfSidecar && !attachToDocument && this->settings->isAutoloadPdfXoj()) {
             const std::vector<std::string> exts = {".xopp", ".xoj", ".pdf.xopp", ".pdf.xoj"};
             fs::path root = filepath;
             Util::clearExtensions(root, ".pdf");
@@ -1814,6 +1829,18 @@ void Control::openFile(fs::path filepath, std::function<void(bool)> callback, in
                 }
             },
             false, true, forceOpen);
+}
+
+void Control::openMarkingSourcePdf(fs::path filepath, std::function<void(bool)> callback) {
+    this->close(
+            [ctrl = this, filepath = std::move(filepath), cb = std::move(callback)](bool closed) mutable {
+                if (!closed) {
+                    cb(false);
+                    return;
+                }
+                ctrl->openFileWithoutSavingTheCurrentDocument(std::move(filepath), false, -1, std::move(cb), false);
+            },
+            false, true, false);
 }
 
 void Control::fileLoaded(int scrollToPage) {
@@ -2089,7 +2116,7 @@ void Control::updateWindowTitle() {
     }
     this->doc->unlock_shared();
 
-    title += " - Xournal++";
+    title += " - StudySzn Marker";
 
     gtk_window_set_title(getGtkWindow(), title.c_str());
 }

@@ -39,10 +39,10 @@
 
 #ifdef GHC_FILESYSTEM
 // Fix of ghc::filesystem bug (path::operator/=() won't support string_views)
-constexpr auto const* CONFIG_FOLDER_NAME = "xournalpp";
+constexpr auto const* CONFIG_FOLDER_NAME = "studyszn-marker";
 #else
 using namespace std::string_view_literals;
-constexpr auto CONFIG_FOLDER_NAME = "xournalpp"sv;
+constexpr auto CONFIG_FOLDER_NAME = "studyszn-marker"sv;
 #endif
 
 #ifdef _WIN32
@@ -406,7 +406,7 @@ auto Util::getCacheFile(const fs::path& relativeFileName) -> fs::path {
 
 auto Util::getTmpDirSubfolder(const fs::path& subfolder) -> fs::path {
     auto p = GFilename(g_get_tmp_dir()).toPath().value_or(fs::path());
-    p /= FS(_F("xournalpp-{1}") % Util::getPid());
+    p /= FS(_F("studyszn-marker-{1}") % Util::getPid());
     p /= subfolder;
     return Util::ensureFolderExists(p);
 }

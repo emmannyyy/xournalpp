@@ -24,7 +24,7 @@ cd "$(dirname "$0")" || exit
 
 # delete old app, if there
 echo "clean old app"
-rm -rf ./Xournal++.app
+rm -rf "./StudySzn Marker.app"
 
 echo "prepare gtk-mac-bundler"
 GTK_MAC_BUNDLER_VENV="$PWD"/gtk-mac-bundler-venv
@@ -74,14 +74,15 @@ fi
 echo "create package"
 
 export GTKDIR="$1/inst"
+export BREWPREFIX="${BREWPREFIX:-$(brew --prefix)}"
 [ ! -d "$GTKDIR" ] && echo "$GTKDIR doesn't exist!" && exit 1
 
 "$GTK_MAC_BUNDLER" xournalpp.bundle
 
 echo "Replace Ctrl by Meta in mainmenubar.xml"
-sed -i -e 's/Ctrl/Meta/g' ./Xournal++.app/Contents/Resources/ui/mainmenubar.xml
+sed -i -e 's/Ctrl/Meta/g' "./StudySzn Marker.app/Contents/Resources/ui/mainmenubar.xml"
 
 echo "Create zip"
-zip --filesync -r Xournal++.zip Xournal++.app
+zip --filesync -r "StudySzn-Marker.zip" "StudySzn Marker.app"
 
 echo "finished"

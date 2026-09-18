@@ -19,10 +19,12 @@
 
 #include "model/DocumentChangeType.h"                  // for DocumentChange...
 #include "model/DocumentListener.h"                    // for DocumentListener
+#include "filesystem.h"
 
 class AbstractSidebarPage;
 class Control;
 class GladeGui;
+class SidebarMarkingPage;
 class SidebarTabButton;
 
 class Sidebar: public DocumentListener {
@@ -78,6 +80,11 @@ public:
      */
     void setSelectedTab(size_t tab);
 
+    /**
+     * Open a teacher-marking manifest and select the Marking tab.
+     */
+    void openMarkingManifest(const fs::path& path);
+
 public:
     // DocumentListener interface
     void documentChanged(DocumentChangeType type) override;
@@ -126,6 +133,9 @@ private:
      * The sidebarContents widget
      */
     GtkWidget* sidebarContents = nullptr;
+
+    SidebarMarkingPage* markingPage = nullptr;
+    size_t markingTabIndex{0};
 };
 
 class SidebarTabButton {

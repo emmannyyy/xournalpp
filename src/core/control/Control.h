@@ -103,6 +103,7 @@ public:
     void openFile(
             fs::path filepath, std::function<void(bool)> callback = [](bool) {}, int scrollToPage = -1,
             bool forceOpen = false);
+    void openMarkingSourcePdf(fs::path filepath, std::function<void(bool)> callback);
     /// Shows an open file dialog and opens the selected file
     void askToAnnotatePdf();
 
@@ -112,7 +113,8 @@ public:
      * not been saved yet.
      */
     void openFileWithoutSavingTheCurrentDocument(fs::path filepath, bool attachToDocument, int scrollToPage,
-                                                 std::function<void(bool)> callback);
+                                                 std::function<void(bool)> callback,
+                                                 bool autoloadPdfSidecar = true);
 
     void print();
     void exportAsPdf();

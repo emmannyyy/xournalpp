@@ -55,7 +55,7 @@ void RecentManager::clearRecentFiles() {
     GList* items = gtk_recent_manager_get_items(recentManager);
     auto item_view = GListView<GtkRecentInfo>(items);
     for (auto& recent: item_view) {
-        if (getFileType(recent) != UNSUPPORTED_FILE_TYPE) {
+        if (gtk_recent_info_has_group(&recent, GROUP) && getFileType(recent) != UNSUPPORTED_FILE_TYPE) {
             gtk_recent_manager_remove_item(recentManager,
                                            gtk_recent_info_get_uri(&recent),
                                            nullptr);
@@ -80,7 +80,7 @@ void RecentManager::addRecentFileFilename(const fs::path& filepath) {
     recentData.app_exec = app_exec.data();
     recentData.groups = groups.data();
     recentData.mime_type = mime_type.data();
-    recentData.is_private = false;
+    recentData.is_private = true;
 
     auto uri = Util::toUri(filepath);
     if (!uri) {
@@ -95,7 +95,17 @@ void RecentManager::removeRecentFileFilename(const fs::path& filename) {
         return;
     }
     GtkRecentManager* recentManager = gtk_recent_manager_get_default();
-    gtk_recent_manager_remove_item(recentManager, uri->c_str(), nullptr);
+    GError* error = nullptr;
+    GtkRecentInfo* info = gtk_recent_manager_lookup_item(recentManager, uri->c_str(), &error);
+    if (info && gtk_recent_info_has_group(info, GROUP)) {
+        gtk_recent_manager_remove_item(recentManager, uri->c_str(), nullptr);
+    }
+    if (info) {
+        gtk_recent_info_unref(info);
+    }
+    if (error) {
+        g_error_free(error);
+    }
 }
 
 auto RecentManager::getMostRecent() -> GtkRecentInfoSPtr {
@@ -106,6 +116,9 @@ auto RecentManager::getMostRecent() -> GtkRecentInfoSPtr {
     }
     GtkRecentInfo* mostRecent = nullptr;
     for (auto& recent: GListView<GtkRecentInfo>(recent_items)) {
+        if (!gtk_recent_info_has_group(&recent, GROUP)) {
+            continue;
+        }
         auto time = gtk_recent_info_get_modified(&recent);
         if (as_signed(time) < 0) {
             continue;
@@ -131,6 +144,9 @@ auto RecentManager::getRecentFiles() -> RecentFiles {
 
     RecentFiles res;
     for (auto& recent: GListView<GtkRecentInfo>(items)) {
+        if (!gtk_recent_info_has_group(&recent, GROUP)) {
+            continue;
+        }
         auto fileType = getFileType(recent);
         if (fileType == PDF_FILE_TYPE && res.recentPdfFiles.size() < MAX_RECENT) {
             res.recentPdfFiles.emplace_back(&recent, xoj::util::ref);

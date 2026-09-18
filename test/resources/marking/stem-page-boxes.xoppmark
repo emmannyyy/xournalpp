@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<marking version="1">
+  <assignment id="synthetic-page-boxes" title="Synthetic STEM demo" student="Anonymous"
+              mode="page-boxes" source-pdf="submission.pdf" cancelled-work-excluded="true"/>
+  <score awarded="1" max="2"/>
+  <parts>
+    <part id="q1-a-1" label="Question 1(a), mark 1" awarded="1" max="1"
+          rationale="Correct idea."/>
+    <part id="q1-a-2" label="Question 1(a), mark 2" awarded="0" max="1"
+          rationale="Missing intermediate step."/>
+  </parts>
+  <annotations>
+    <annotation id="a01" page="1" part-id="q1-a-1" verdict="correct" source="ai"
+                severity="minor" target-type="image" reviewed="true" awarded="1" max="1">
+      <box y0="145" x0="100" y1="205" x1="820"/>
+      <title>Correct working</title>
+      <comment>Correct. The substitution is accurate.</comment>
+      <how-to-improve>Keep units visible in the final answer.</how-to-improve>
+      <evidence>Selected response</evidence>
+    </annotation>
+    <annotation id="a02" page="2" part-id="q1-a-2" verdict="incorrect" source="ai"
+                severity="major" target-type="image" reviewed="true" awarded="0" max="1">
+      <box y0="145" x0="100" y1="215" x1="850"/>
+      <title>Missing intermediate step</title>
+      <comment>The final answer is unsupported.</comment>
+      <how-to-improve>Show the substitution before evaluating.</how-to-improve>
+      <evidence>Selected response</evidence>
+    </annotation>
+  </annotations>
+</marking>

@@ -63,3 +63,13 @@ Debug
 # Miscellaneous
 .DS_STORE
 *~
+
+# Private teacher-marking trials (student work and service responses)
+.marking-local/
+.install/
+__pycache__/
+/mac-setup/package-root/
+/mac-setup/StudySzn Marker.app/
+/mac-setup/StudySzn-Marker.zip
+/mac-setup/gtk-mac-bundler/
+/mac-setup/gtk-mac-bundler-venv/

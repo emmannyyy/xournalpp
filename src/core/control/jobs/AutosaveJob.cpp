@@ -30,13 +30,9 @@ void AutosaveJob::run() {
     Document* doc = control->getDocument();
 
     doc->lock_shared();
-    auto filepath = doc->getFilepath();
-
-    if (filepath.empty()) {
-        filepath = Util::getAutosaveFilepath();
-    } else {
-        filepath.replace_filename(fs::path(".") += filepath.filename());
-    }
+    // Keep fork autosaves in its isolated cache. Sidecar autosaves beside a
+    // document would collide with an installed Xournal++ editing the same file.
+    auto filepath = Util::getAutosaveFilepath();
     Util::clearExtensions(filepath);
     filepath += ".autosave.xopp";
 

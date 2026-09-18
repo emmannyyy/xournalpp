@@ -21,6 +21,7 @@ add_executable (xournalpp-thumbnailer
         "${PROJECT_SOURCE_DIR}/src/util/Stacktrace.cpp"
         "${PROJECT_SOURCE_DIR}/src/util/XojPreviewExtractor.cpp"
         )
+set_target_properties(xournalpp-thumbnailer PROPERTIES OUTPUT_NAME "studyszn-marker-thumbnailer")
 
 target_compile_features (xournalpp-thumbnailer PRIVATE cxx_std_20)
 target_link_libraries (xournalpp-thumbnailer
