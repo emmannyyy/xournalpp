@@ -10,26 +10,26 @@ runs:
   steps:
   - name: 'Attempt to pull blob from cache'
     id: restore-blob
-    uses: actions/cache/restore@v5
+    uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
     with:
       path: "${{github.workspace}}/blob"
       key: ${{ runner.os }}-${{ runner.arch }}-blob-${{ hashFiles('mac-setup/CI_jhbuild.sh', 'mac-setup/jhbuild-version.lock', 'mac-setup/xournalpp.modules', 'mac-setup/gtk-osx.patch') }}
   - name: 'Install Perl XML::Parser' # Needed for compilation of Intltool in the blob
     if: steps.restore-blob.outputs.cache-hit != 'true'
-    uses: perl-actions/install-with-cpm@v1
+    uses: perl-actions/install-with-cpm@8b1a9840b26cc3885ae2889749a48629be2501b0 # v1
     with:
       install: XML::Parser
   - name: 'Compile blob'
     if: steps.restore-blob.outputs.cache-hit != 'true'
     shell: bash
     run: |
-      brew install cargo-c
+      cargo install cargo-c --version 0.10.25 --locked
       mkdir "${{github.workspace}}/blob"
       bash "${{github.workspace}}/mac-setup/CI_jhbuild.sh"
       mv xournalpp-binary-blob.tar.gz "${{github.workspace}}/blob/"
   - name: 'Push blob to cache'
     if: steps.restore-blob.outputs.cache-hit != 'true'
-    uses: actions/cache/save@v5
+    uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
     with:
       key: ${{ steps.restore-blob.outputs.cache-primary-key }}
       path: "${{github.workspace}}/blob"
@@ -46,6 +46,7 @@ runs:
     shell: bash
     run: |
       curl -L -o ninja-mac.zip https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-mac.zip
+      echo "482ecb23c59ae3d4f158029112de172dd96bb0e97549c4b1ca32d8fad11f873e  ninja-mac.zip" | shasum -a 256 -c -
       unzip ninja-mac.zip -d "${{inputs.install_path}}/gtk/inst/bin"
       rm ninja-mac.zip
   - name: 'Setup ENV for future steps'

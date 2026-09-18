@@ -53,7 +53,7 @@ EOF
 
   cat <<EOF > pyproject.toml
 [build-system]
-requires = ["setuptools >= 58.0"]
+requires = ["setuptools == 84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]

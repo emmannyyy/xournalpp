@@ -359,7 +359,16 @@ void SidebarMarkingPage::documentChanged(DocumentChangeType type) {
         std::error_code documentError;
         const auto expected = fs::weakly_canonical(*boundSourcePdf, sourceError);
         const auto actual = fs::weakly_canonical(control->getDocument()->getPdfFilepath(), documentError);
-        if (sourceError || documentError || expected != actual) {
+        bool sourceHashMismatch = true;
+        if (!sourceError && fs::exists(expected) && !marking->sourceSha256.empty()) {
+            try {
+                sourceHashMismatch =
+                        g_ascii_strcasecmp(sha256File(expected).c_str(), marking->sourceSha256.c_str()) != 0;
+            } catch (const std::exception&) {
+                sourceHashMismatch = true;
+            }
+        }
+        if (sourceError || documentError || expected != actual || sourceHashMismatch) {
             clearMarkingRecoveryPointer();
             marking.reset();
             manifestPath.reset();
@@ -679,9 +688,10 @@ void SidebarMarkingPage::applyDetailEdits() {
 
 void SidebarMarkingPage::saveWorkingManifest() {
     if (marking && manifestPath) {
-        MarkingXml::save(*marking, *manifestPath);
         const auto recoveryPointer = Util::getConfigFile("emergencysave.xoppmark.path");
-        std::ofstream pointer(recoveryPointer, std::ios::binary | std::ios::trunc);
+        auto pointerTemporary = recoveryPointer;
+        pointerTemporary += ".tmp";
+        std::ofstream pointer(pointerTemporary, std::ios::binary | std::ios::trunc);
         if (!pointer) {
             throw std::runtime_error("Could not create the marking recovery pointer");
         }
@@ -689,6 +699,14 @@ void SidebarMarkingPage::saveWorkingManifest() {
         if (!pointer) {
             throw std::runtime_error("Could not write the marking recovery pointer");
         }
+        pointer.close();
+        std::error_code pointerError;
+        fs::rename(pointerTemporary, recoveryPointer, pointerError);
+        if (pointerError) {
+            fs::remove(pointerTemporary, pointerError);
+            throw std::runtime_error("Could not atomically replace the marking recovery pointer");
+        }
+        MarkingXml::save(*marking, *manifestPath);
     }
 }
 
@@ -818,6 +836,15 @@ void SidebarMarkingPage::addAnnotationFromSelection() {
     }
     syncAnnotationGeometry();
     marking->annotations.push_back(std::move(annotation));
+    try {
+        saveWorkingManifest();
+    } catch (const std::exception& exception) {
+        marking->annotations.pop_back();
+        showMessage(GTK_MESSAGE_ERROR, _("Could not add feedback"),
+                    std::string(_("The feedback was not added because the marking draft could not be saved: ")) +
+                            exception.what());
+        return;
+    }
     materializeAnnotations();
 
     updateHeader();
@@ -826,6 +853,12 @@ void SidebarMarkingPage::addAnnotationFromSelection() {
 }
 
 void SidebarMarkingPage::importManifest(const fs::path& path, bool allowSourcePdfSwitch) {
+    // Persist the active draft before loading the replacement. This must happen
+    // before MarkingXml::load when both drafts share a path, otherwise the
+    // freshly saved state would be replaced by a stale in-memory copy.
+    if (!checkpointRecoveryState(true)) {
+        return;
+    }
     xoj::marking::MarkingDocument draft = MarkingXml::load(path);
     const auto issues = draft.validate(std::nullopt, false);
     std::ostringstream validationErrors;
@@ -850,21 +883,31 @@ void SidebarMarkingPage::importManifest(const fs::path& path, bool allowSourcePd
         throw std::runtime_error(
                 "Source PDF not found. Put the PDF beside the .xoppmark file, then import the draft again.");
     }
-    if (!draft.sourceSha256.empty() &&
-        g_ascii_strcasecmp(sha256File(sourcePath).c_str(), draft.sourceSha256.c_str()) != 0) {
+    if (draft.sourceSha256.empty()) {
+        throw std::runtime_error(
+                "The marking draft has no PDF fingerprint. Recreate or re-export it before attaching student work.");
+    }
+    if (g_ascii_strcasecmp(sha256File(sourcePath).c_str(), draft.sourceSha256.c_str()) != 0) {
         throw std::runtime_error(
                 "The PDF beside this draft is not the student script it was created for. Choose the matching files.");
     }
 
-    std::error_code expectedError;
     std::error_code actualError;
-    const auto expected = fs::weakly_canonical(sourcePath, expectedError);
     const auto currentPath = control->getDocument()->getPdfFilepath();
     const auto actual = currentPath.empty() ? fs::path() : fs::weakly_canonical(currentPath, actualError);
-    if (!expectedError && !actualError && !actual.empty() && expected == actual) {
-        activateManifest(std::move(draft), path, sourcePath);
-        materializeAnnotations();
-        return;
+    if (!actualError && !actual.empty() && fs::exists(actual)) {
+        try {
+            if (g_ascii_strcasecmp(sha256File(actual).c_str(), draft.sourceSha256.c_str()) == 0) {
+                // Content identity is authoritative. Recovery may have opened
+                // the original PDF while the exported manifest references an
+                // identical portable copy.
+                activateManifest(std::move(draft), path, actual);
+                materializeAnnotations();
+                return;
+            }
+        } catch (const std::exception&) {
+            // Fall through to the guarded source switch below.
+        }
     }
     if (!allowSourcePdfSwitch) {
         throw std::runtime_error(
@@ -874,14 +917,21 @@ void SidebarMarkingPage::importManifest(const fs::path& path, bool allowSourcePd
     // Keep the current draft authoritative until the PDF switch has actually
     // succeeded. Cancelling the document-close prompt must leave both the old
     // PDF and its marking state intact.
-    if (!checkpointRecoveryState(true)) {
-        return;
-    }
     control->openMarkingSourcePdf(
-            sourcePath, [this, draft = std::move(draft), path, sourcePath](bool opened) mutable {
+            sourcePath, [this, draft = std::move(draft), path](bool opened) mutable {
         if (opened) {
-            activateManifest(std::move(draft), path, sourcePath);
-            materializeAnnotations();
+            const auto openedPath = control->getDocument()->getPdfFilepath();
+            try {
+                if (openedPath.empty() ||
+                    g_ascii_strcasecmp(sha256File(openedPath).c_str(), draft.sourceSha256.c_str()) != 0) {
+                    throw std::runtime_error(
+                            "The source PDF changed while it was being opened. The marking draft was not attached.");
+                }
+                activateManifest(std::move(draft), path, openedPath);
+                materializeAnnotations();
+            } catch (const std::exception& exception) {
+                showMessage(GTK_MESSAGE_ERROR, _("Could not attach marking draft"), exception.what());
+            }
         } else {
             showMessage(GTK_MESSAGE_ERROR, _("Source PDF was not opened"),
                         _("The current draft is unchanged. Save any open document, then import the new draft again."));
@@ -1060,10 +1110,17 @@ void SidebarMarkingPage::exportManifest(const fs::path& path) {
         const auto destinationDirectory = fs::absolute(path).parent_path();
         const auto source = fs::absolute(*boundSourcePdf);
         const auto portableSource = destinationDirectory / source.filename();
+        const auto expectedHash = marking->sourceSha256;
+        if (expectedHash.empty() ||
+            g_ascii_strcasecmp(sha256File(source).c_str(), expectedHash.c_str()) != 0) {
+            throw std::runtime_error(
+                    _("The source PDF changed after this marking draft was opened. Reopen the matching student "
+                      "script before exporting."));
+        }
         std::error_code error;
         if (source != portableSource) {
             if (fs::exists(portableSource)) {
-                if (!fs::equivalent(source, portableSource, error) || error) {
+                if (g_ascii_strcasecmp(sha256File(portableSource).c_str(), expectedHash.c_str()) != 0) {
                     throw std::runtime_error(
                             _("The export folder already contains a different PDF with the same name. Choose another "
                               "folder so the review can remain portable."));
@@ -1074,10 +1131,14 @@ void SidebarMarkingPage::exportManifest(const fs::path& path) {
                     throw std::runtime_error(
                             _("Could not copy the source PDF beside the exported review. Choose a writable folder."));
                 }
+                if (g_ascii_strcasecmp(sha256File(portableSource).c_str(), expectedHash.c_str()) != 0) {
+                    fs::remove(portableSource, error);
+                    throw std::runtime_error(_("The copied source PDF failed its integrity check. Export was stopped."));
+                }
             }
         }
         marking->sourcePdf = portableSource.filename().string();
-        marking->sourceSha256 = sha256File(source);
+        marking->sourceSha256 = expectedHash;
     }
     MarkingXml::save(*marking, path);
     manifestPath = path;

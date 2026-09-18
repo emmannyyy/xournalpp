@@ -1,0 +1,69 @@
+StudySzn Marker — third-party software notices
+================================================
+
+StudySzn Marker is a GPL-2.0-or-later fork of Xournal++ and dynamically
+links the libraries listed below. This notice is informational; each
+component remains governed by its own license.
+
+Component                    Declared license(s)
+---------------------------  ---------------------------------------------
+at-spi2-core                 LGPL-2.1-or-later
+cairo                        LGPL-2.1-only OR MPL-1.1
+fontconfig                   HPND/MIT/Unicode permissive licenses
+freetype                     FreeType License
+fribidi                      GPL-2.0-or-later AND LGPL-2.1-or-later
+gdk-pixbuf                   LGPL-2.1-or-later
+gettext                      GPL-3.0-or-later AND LGPL-2.1-or-later
+glib                         LGPL-2.1-or-later
+gpgme, gpgmepp               LGPL-2.1-or-later
+graphite2                    MIT/MPL-2.0/LGPL-2.1+/GPL-2.0+
+GTK 3                        LGPL-2.0-or-later
+GtkSourceView 4              LGPL-2.1-or-later
+harfbuzz                     MIT
+libjpeg-turbo                IJG, zlib, and BSD-3-Clause
+libassuan                    LGPL-2.1-or-later/GPL-3.0-or-later
+libdatrie                    LGPL-2.1-or-later
+libepoxy                     MIT
+libgpg-error                 LGPL-2.1-or-later
+libpng                       libpng-2.0
+librsvg                      LGPL-2.1-or-later
+libthai                      LGPL-2.1-or-later
+libtiff                      libtiff
+X11 libraries               MIT
+libzip                       BSD-3-Clause
+Little CMS                   MIT
+Lua                          MIT
+NSPR and NSS                 MPL-2.0
+OpenJPEG                     BSD-2-Clause
+OpenSSL                      Apache-2.0
+Pango                        LGPL-2.0-or-later
+PCRE2                        BSD-3-Clause
+Pixman                       MIT
+Poppler                      GPL-2.0-only OR GPL-3.0-only
+qpdf                         Apache-2.0
+WebP                         BSD-3-Clause
+XZ Utils                     0BSD AND GPL-2.0-or-later
+Zstandard                    BSD/MIT/GPL license combination
+
+Corresponding source and license texts
+--------------------------------------
+
+The complete StudySzn Marker source, including its macOS packaging scripts
+and pinned GTK build inputs, is available from:
+
+  https://github.com/emmannyyy/xournalpp
+
+The corresponding upstream source archives and complete license metadata for
+the bundled library builds are available through Homebrew's formulae:
+
+  https://formulae.brew.sh/
+  https://github.com/Homebrew/homebrew-core
+
+Search for the component name shown above. The exact packaged component
+versions can also be identified from the app bundle's Mach-O library version
+metadata and the release build record. License identifiers follow SPDX:
+
+  https://spdx.org/licenses/
+
+No endorsement by the upstream projects is implied. Xournal++ and the names
+of third-party projects belong to their respective owners.

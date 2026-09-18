@@ -18,6 +18,7 @@ TEST(MarkingDocument, ValidatesMarkingContract) {
     MarkingDocument document;
     document.title = "Synthetic paper";
     document.mode = MarkingMode::Debox;
+    document.sourceSha256 = std::string(64, 'a');
     document.parts.push_back({"q1-a", "Question 1(a)", 1.0, 2.0, "One of two points"});
     document.annotations.push_back(MarkingAnnotation{
             .id = "a01",
@@ -65,6 +66,7 @@ TEST(MarkingDocument, EnforcesModeSpecificContracts) {
     MarkingDocument stem;
     stem.title = "Synthetic STEM paper";
     stem.mode = MarkingMode::PageBoxes;
+    stem.sourceSha256 = std::string(64, 'b');
     stem.cancelledWorkExcluded = true;
     stem.parts.push_back({"q1-a", "Question 1(a)", 1.0, 1.0, ""});
     stem.annotations.push_back(MarkingAnnotation{

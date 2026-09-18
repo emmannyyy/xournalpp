@@ -31,13 +31,13 @@ jobs:
       release_name: ${{ steps.parse.outputs.release-name }}
       tag: ${{ steps.parse.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:  # Get the build targets
           sparse-checkout: '${{ env.build-targets-json }}'
           sparse-checkout-cone-mode: false
       - name: 'Parse targets list and setup version string'
         id: parse
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             const available_targets = require('${{ env.build-targets-json }}')
@@ -101,7 +101,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           merge-multiple: true
           path: ${{ github.workspace }}/artifacts
@@ -112,7 +112,7 @@ jobs:
         working-directory: ${{ github.workspace }}/artifacts
       - name: "Update tag and prepare body (Nightly builds)"
         if: ${{ needs.prepare.outputs.tag == 'nightly' }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
           script: |
             github.rest.git.updateRef({  // Move the nightly tag forward
@@ -132,7 +132,7 @@ jobs:
             }
             core.exportVariable('body', body)
       - name: Pull changelog
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         if: ${{ needs.prepare.outputs.tag != 'nightly' }}
         with:  # Get the changelog
           sparse-checkout: 'debian/changelog'
@@ -148,7 +148,7 @@ jobs:
             echo "See https://github.com/${{ github.repository }}/blob/${{ needs.prepare.outputs.tag }}/CHANGELOG.md for a more detailed list of changes."
             echo EOF
           } >> "$GITHUB_ENV"
-      - uses: ncipollo/release-action@v1
+      - uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1
         with:
           artifacts: "${{ github.workspace }}/artifacts/*"
           prerelease: ${{ needs.prepare.outputs.tag == 'nightly' }}

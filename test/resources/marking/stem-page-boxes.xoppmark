@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <marking version="1">
   <assignment id="synthetic-page-boxes" title="Synthetic STEM demo" student="Anonymous"
-              mode="page-boxes" source-pdf="submission.pdf" cancelled-work-excluded="true"/>
+              mode="page-boxes" source-pdf="submission.pdf"
+              source-sha256="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              cancelled-work-excluded="true"/>
   <score awarded="1" max="2"/>
   <parts>
     <part id="q1-a-1" label="Question 1(a), mark 1" awarded="1" max="1"

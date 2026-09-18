@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <marking version="1">
   <assignment id="synthetic-debox" title="Synthetic humanities demo" student="Anonymous"
-              mode="debox" source-pdf="submission.pdf" cancelled-work-excluded="true"/>
+              mode="debox" source-pdf="submission.pdf"
+              source-sha256="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              cancelled-work-excluded="true"/>
   <score awarded="1" max="2"/>
   <parts>
     <part id="q1-a" label="Question 1(a)" awarded="1" max="2"

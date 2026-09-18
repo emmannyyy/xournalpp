@@ -67,10 +67,11 @@ std::vector<ValidationIssue> MarkingDocument::validate(std::optional<size_t> pag
     if (mode == MarkingMode::PageBoxes && !cancelledWorkExcluded) {
         error("assignment", "STEM producer must attest that cancelled work was excluded");
     }
-    if (!sourceSha256.empty() &&
-        (sourceSha256.size() != 64 ||
-         !std::all_of(sourceSha256.begin(), sourceSha256.end(),
-                      [](unsigned char character) { return std::isxdigit(character) != 0; }))) {
+    if (sourceSha256.empty()) {
+        error("assignment", "Source PDF SHA-256 is required");
+    } else if (sourceSha256.size() != 64 ||
+               !std::all_of(sourceSha256.begin(), sourceSha256.end(),
+                            [](unsigned char character) { return std::isxdigit(character) != 0; })) {
         error("assignment", "Source PDF SHA-256 must be 64 hexadecimal characters");
     }
 

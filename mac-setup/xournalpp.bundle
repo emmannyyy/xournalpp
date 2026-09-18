@@ -95,7 +95,7 @@
   </data>
 
   <data dest="${bundle}/Contents/Resources/THIRD-PARTY-NOTICES.txt">
-    ${project}/../copyright.txt
+    ${project}/../THIRD-PARTY-NOTICES.txt
   </data>
 
   <data dest="${bundle}/Contents/Resources/share/glib-2.0/schemas">

@@ -127,12 +127,15 @@ void checkForEmergencySave(Control* control) {
 
                         // Todo Make sure the document is changed + ask for saving
                         ctrl->getUndoRedoHandler()->addUndoAction(std::make_unique<EmergencySaveRestore>());
+                        const bool structuredRecoveryRequired = fs::exists(markingPointer);
+                        bool structuredRecoverySucceeded = !structuredRecoveryRequired;
                         std::ifstream pointer(markingPointer, std::ios::binary);
                         std::string manifest;
                         std::getline(pointer, manifest);
                         if (!manifest.empty() && fs::exists(fs::path(manifest))) {
                             try {
                                 ctrl->getSidebar()->restoreMarkingManifest(fs::path(manifest));
+                                structuredRecoverySucceeded = true;
                             } catch (const std::exception& exception) {
                                 XojMsgBox::showErrorToUser(
                                         ctrl->getGtkWindow(),
@@ -140,10 +143,17 @@ void checkForEmergencySave(Control* control) {
                                               "restored: {1}") %
                                            exception.what()));
                             }
+                        } else if (structuredRecoveryRequired) {
+                            XojMsgBox::showErrorToUser(
+                                    ctrl->getGtkWindow(),
+                                    _("The PDF was recovered, but the structured marking recovery file is missing. "
+                                      "Recovery files were kept so you can try again."));
                         }
-                        std::error_code pointerError;
-                        fs::remove(markingPointer, pointerError);
-                        deleteFile(file, ctrl->getGtkWindow());
+                        if (structuredRecoverySucceeded) {
+                            std::error_code pointerError;
+                            fs::remove(markingPointer, pointerError);
+                            deleteFile(file, ctrl->getGtkWindow());
+                        }
                     });
                 }
             });
