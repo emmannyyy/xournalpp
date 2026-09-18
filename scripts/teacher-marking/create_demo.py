@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -112,7 +113,7 @@ def add_annotation(
         )
 
 
-def create_manifest(path: Path, mode: str) -> None:
+def create_manifest(path: Path, mode: str, source_pdf: Path) -> None:
     root = ET.Element("marking", {"version": "1"})
     ET.SubElement(
         root,
@@ -122,7 +123,8 @@ def create_manifest(path: Path, mode: str) -> None:
             "title": "Synthetic teacher-marking demo",
             "student": "Anonymous",
             "mode": mode,
-            "source-pdf": "submission.pdf",
+            "source-pdf": source_pdf.name,
+            "source-sha256": hashlib.sha256(source_pdf.read_bytes()).hexdigest(),
             "cancelled-work-excluded": "true",
         },
     )
@@ -173,8 +175,12 @@ def create_manifest(path: Path, mode: str) -> None:
         part_id=part_ids[0],
         verdict="correct",
         box=(145, 100, 205, 820),
-        title="Accurate definition",
-        comment="Correct. You identified scarcity and competing uses.",
+        title="Accurate definition" if mode == "debox" else "Correct substitution",
+        comment=(
+            "Correct. You identified scarcity and competing uses."
+            if mode == "debox"
+            else "Correct. You substituted the values with consistent SI units."
+        ),
         exact="Resources are scarce and have competing uses." if mode == "debox" else None,
     )
     add_annotation(
@@ -184,8 +190,12 @@ def create_manifest(path: Path, mode: str) -> None:
         part_id=part_ids[1],
         verdict="partial",
         box=(145, 100, 215, 850),
-        title="Complete the mechanism",
-        comment="You stated the final effect but skipped the intermediate step.",
+        title="Complete the mechanism" if mode == "debox" else "Show the intermediate calculation",
+        comment=(
+            "You stated the final effect but skipped the intermediate step."
+            if mode == "debox"
+            else "Your final value is plausible, but the acceleration step is missing."
+        ),
         exact="Therefore, price falls." if mode == "debox" else None,
     )
     ET.indent(root, space="  ")
@@ -195,15 +205,24 @@ def create_manifest(path: Path, mode: str) -> None:
 def main() -> None:
     root = Path(__file__).resolve().parents[2] / ".marking-local" / "demo"
     root.mkdir(parents=True, exist_ok=True)
+    humanities_pdf = root / "humanities-submission.pdf"
+    stem_pdf = root / "stem-submission.pdf"
     create_pdf(
-        root / "submission.pdf",
+        humanities_pdf,
         [
             ["Question 1(a)", "Resources are scarce and have competing uses."],
             ["Question 1(a), continued", "Therefore, price falls."],
         ],
     )
-    create_manifest(root / "humanities-debox.xoppmark", "debox")
-    create_manifest(root / "stem-page-boxes.xoppmark", "page-boxes")
+    create_pdf(
+        stem_pdf,
+        [
+            ["Question 1(a)", "v = u + at", "12 = 4 + a(2)"],
+            ["Question 1(a), continued", "v squared = u squared + 2as", "s = 16 m"],
+        ],
+    )
+    create_manifest(root / "humanities-debox.xoppmark", "debox", humanities_pdf)
+    create_manifest(root / "stem-page-boxes.xoppmark", "page-boxes", stem_pdf)
     print(root)
 
 

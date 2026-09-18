@@ -81,6 +81,9 @@ set_target_properties(xournalpp-wrapper PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${C
         WIN32_EXECUTABLE $<IF:$<PLATFORM_ID:Windows>,TRUE,${CMAKE_WIN32_EXECUTABLE}>
         )
 target_include_directories(xournalpp-wrapper PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+if (APPLE)
+  target_link_options(xournalpp-wrapper PRIVATE "-Wl,-headerpad_max_install_names")
+endif()
 
 
 ##############################
@@ -97,6 +100,9 @@ set_target_properties(xournalpp PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BIN
 if (WIN32)
   # Make sure Windows executable has all symbols
   target_link_options(xournalpp PRIVATE "-Wl,--export-all-symbols")
+endif()
+if (APPLE)
+  target_link_options(xournalpp PRIVATE "-Wl,-headerpad_max_install_names")
 endif()
 
 ###############################

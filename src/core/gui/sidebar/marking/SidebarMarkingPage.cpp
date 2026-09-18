@@ -1,8 +1,10 @@
 #include "SidebarMarkingPage.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <numeric>
 #include <sstream>
@@ -28,9 +30,6 @@
 #include "model/StrokeStyle.h"
 #include "model/XojPage.h"
 #include "pdf/base/XojPdfPage.h"
-#include "undo/GroupUndoAction.h"
-#include "undo/InsertLayerUndoAction.h"
-#include "undo/RemoveLayerUndoAction.h"
 #include "util/PathUtil.h"
 #include "util/Util.h"
 #include "util/Color.h"
@@ -111,14 +110,47 @@ void clearBox(GtkWidget* box) {
 #endif
 }
 
+std::string sha256File(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        throw std::runtime_error("Could not read the source PDF");
+    }
+    GChecksum* checksum = g_checksum_new(G_CHECKSUM_SHA256);
+    std::array<char, 64 * 1024> buffer{};
+    while (input) {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        if (const auto count = input.gcount(); count > 0) {
+            g_checksum_update(checksum, reinterpret_cast<const guchar*>(buffer.data()), static_cast<gssize>(count));
+        }
+    }
+    const std::string result = g_checksum_get_string(checksum);
+    g_checksum_free(checksum);
+    return result;
+}
+
+void clearMarkingRecoveryPointer() {
+    std::error_code error;
+    fs::remove(Util::getConfigFile("emergencysave.xoppmark.path"), error);
+}
+
 }  // namespace
 
 SidebarMarkingPage::SidebarMarkingPage(Control* control): AbstractSidebarPage(control) {
     buildUi();
     registerListener(control);
+    recoveryTimeoutId = g_timeout_add_seconds(
+            5,
+            [](gpointer data) -> gboolean {
+                (void)static_cast<SidebarMarkingPage*>(data)->checkpointRecoveryState();
+                return G_SOURCE_CONTINUE;
+            },
+            this);
 }
 
 SidebarMarkingPage::~SidebarMarkingPage() {
+    if (recoveryTimeoutId != 0) {
+        g_source_remove(recoveryTimeoutId);
+    }
     if (root) {
         g_object_unref(root);
     }
@@ -131,6 +163,7 @@ void SidebarMarkingPage::buildUi() {
     gtk_widget_set_margin_end(root, 10);
     gtk_widget_set_margin_top(root, 10);
     gtk_widget_set_margin_bottom(root, 10);
+    gtk_widget_set_size_request(root, 320, -1);
 
     headerLabel = makeLeftLabel(_("Teacher marking"));
     gtk_widget_add_css_class(headerLabel, "title");
@@ -139,13 +172,15 @@ void SidebarMarkingPage::buildUi() {
     scoreLabel = makeLeftLabel(_("Import a marking draft to begin."));
     gtk_box_append(GTK_BOX(root), scoreLabel);
 
-    GtkWidget* actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget* actions = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
     GtkWidget* importButton = gtk_button_new_with_label(_("Import draft"));
     GtkWidget* addButton = gtk_button_new_with_label(_("Add from selection"));
+    GtkWidget* reviewAllButton = gtk_button_new_with_label(_("Mark all feedback reviewed"));
     exportButton = gtk_button_new_with_label(_("Export review"));
     gtk_widget_set_sensitive(exportButton, false);
     gtk_box_append(GTK_BOX(actions), importButton);
     gtk_box_append(GTK_BOX(actions), addButton);
+    gtk_box_append(GTK_BOX(actions), reviewAllButton);
     gtk_box_append(GTK_BOX(actions), exportButton);
     gtk_box_append(GTK_BOX(root), actions);
 
@@ -156,7 +191,7 @@ void SidebarMarkingPage::buildUi() {
                                  self->control->getGtkWindow(), {"*.xoppmark"},
                                  [self](fs::path path) {
                                      try {
-                                         self->importManifest(path);
+                                         self->importManifest(path, true);
                                      } catch (const std::exception& exception) {
                                          self->showMessage(GTK_MESSAGE_ERROR, _("Could not import marking draft"),
                                                            exception.what());
@@ -167,6 +202,11 @@ void SidebarMarkingPage::buildUi() {
     g_signal_connect(addButton, "clicked",
                      G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<SidebarMarkingPage*>(data)->addAnnotationFromSelection();
+                     }),
+                     this);
+    g_signal_connect(reviewAllButton, "clicked",
+                     G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         static_cast<SidebarMarkingPage*>(data)->markAllReviewed();
                      }),
                      this);
     g_signal_connect(exportButton, "clicked",
@@ -181,6 +221,7 @@ void SidebarMarkingPage::buildUi() {
     gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(filterCombo), "partial", _("Partial"));
     gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(filterCombo), "incorrect", _("Incorrect"));
     gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(filterCombo), "unresolved", _("Unresolved"));
+    gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(filterCombo), "unreviewed", _("Not yet reviewed"));
     gtk_combo_box_set_active_id(GTK_COMBO_BOX(filterCombo), "all");
     gtk_box_append(GTK_BOX(root), filterCombo);
     g_signal_connect(filterCombo, "changed",
@@ -196,17 +237,32 @@ void SidebarMarkingPage::buildUi() {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), listBox);
     gtk_box_append(GTK_BOX(root), scroll);
 
+    detailScroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(detailScroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_vexpand(detailScroll, true);
+    gtk_widget_set_visible(detailScroll, false);
     detailBox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_widget_set_visible(detailBox, false);
-    gtk_box_append(GTK_BOX(root), detailBox);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(detailScroll), detailBox);
+    gtk_box_append(GTK_BOX(root), detailScroll);
 
     gtk_box_append(GTK_BOX(detailBox), makeLeftLabel(_("Feedback title")));
     detailTitle = gtk_entry_new();
     gtk_box_append(GTK_BOX(detailBox), detailTitle);
 
     gtk_box_append(GTK_BOX(detailBox), makeLeftLabel(_("Question part")));
-    detailPart = gtk_entry_new();
+    detailPart = gtk_combo_box_text_new();
     gtk_box_append(GTK_BOX(detailBox), detailPart);
+    g_signal_connect(detailPart, "changed",
+                     G_CALLBACK(+[](GtkComboBox*, gpointer data) {
+                         static_cast<SidebarMarkingPage*>(data)->changeSelectedPart();
+                     }),
+                     this);
+
+    gtk_box_append(GTK_BOX(detailBox), makeLeftLabel(_("AI evidence from the script")));
+    detailEvidence = makeLeftLabel("");
+    gtk_label_set_line_wrap(GTK_LABEL(detailEvidence), true);
+    gtk_widget_add_css_class(detailEvidence, "dim-label");
+    gtk_box_append(GTK_BOX(detailBox), detailEvidence);
 
     gtk_box_append(GTK_BOX(detailBox), makeLeftLabel(_("Comment to student")));
     detailComment = gtk_text_view_new();
@@ -232,7 +288,7 @@ void SidebarMarkingPage::buildUi() {
     gtk_box_append(GTK_BOX(detailBox), verdictRow);
 
     GtkWidget* marksRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
-    gtk_box_append(GTK_BOX(marksRow), makeLeftLabel(_("Marks")));
+    gtk_box_append(GTK_BOX(marksRow), makeLeftLabel(_("Part score")));
     detailAwarded = gtk_spin_button_new_with_range(0.0, 1000.0, 0.5);
     detailMax = gtk_spin_button_new_with_range(0.0, 1000.0, 0.5);
     gtk_box_append(GTK_BOX(marksRow), detailAwarded);
@@ -240,13 +296,37 @@ void SidebarMarkingPage::buildUi() {
     gtk_box_append(GTK_BOX(marksRow), detailMax);
     gtk_box_append(GTK_BOX(detailBox), marksRow);
 
-    GtkWidget* applyButton = gtk_button_new_with_label(_("Apply changes"));
+    GtkWidget* navigationRow = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget* previousButton = gtk_button_new_with_label(_("Previous"));
+    GtkWidget* nextButton = gtk_button_new_with_label(_("Next"));
+    gtk_widget_set_hexpand(previousButton, true);
+    gtk_widget_set_hexpand(nextButton, true);
+    gtk_box_append(GTK_BOX(navigationRow), previousButton);
+    gtk_box_append(GTK_BOX(navigationRow), nextButton);
+    gtk_box_append(GTK_BOX(detailBox), navigationRow);
+    g_signal_connect(previousButton, "clicked",
+                     G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         static_cast<SidebarMarkingPage*>(data)->navigateRelative(-1);
+                     }),
+                     this);
+    g_signal_connect(nextButton, "clicked",
+                     G_CALLBACK(+[](GtkButton*, gpointer data) {
+                         static_cast<SidebarMarkingPage*>(data)->navigateRelative(1);
+                     }),
+                     this);
+
+    GtkWidget* applyButton = gtk_button_new_with_label(_("Save feedback changes"));
     gtk_box_append(GTK_BOX(detailBox), applyButton);
     g_signal_connect(applyButton, "clicked",
                      G_CALLBACK(+[](GtkButton*, gpointer data) {
                          static_cast<SidebarMarkingPage*>(data)->applyDetailEdits();
                      }),
                      this);
+#if GTK_MAJOR_VERSION == 3
+    gtk_widget_show_all(root);
+#else
+    gtk_widget_set_visible(root, true);
+#endif
 }
 
 void SidebarMarkingPage::enableSidebar() {}
@@ -259,33 +339,52 @@ GtkWidget* SidebarMarkingPage::getWidget() { return root; }
 
 void SidebarMarkingPage::documentChanged(DocumentChangeType type) {
     if (type == DOCUMENT_CHANGE_CLEARED) {
+        if (marking) {
+            syncAnnotationGeometry();
+            if (selectedAnnotation) {
+                (void)commitDetailEdits();
+            }
+            try {
+                saveWorkingManifest();
+            } catch (const std::exception& exception) {
+                showMessage(GTK_MESSAGE_ERROR, _("Could not save marking edits"), exception.what());
+            }
+        }
         selectedAnnotation.reset();
+        highlightedPage.reset();
         annotationElements.clear();
-        gtk_widget_set_visible(detailBox, false);
+        gtk_widget_set_visible(detailScroll, false);
     } else if (type == DOCUMENT_CHANGE_COMPLETE && marking && boundSourcePdf) {
         std::error_code sourceError;
         std::error_code documentError;
         const auto expected = fs::weakly_canonical(*boundSourcePdf, sourceError);
         const auto actual = fs::weakly_canonical(control->getDocument()->getPdfFilepath(), documentError);
         if (sourceError || documentError || expected != actual) {
+            clearMarkingRecoveryPointer();
             marking.reset();
             manifestPath.reset();
             boundSourcePdf.reset();
             selectedAnnotation.reset();
+            highlightedPage.reset();
             annotationElements.clear();
-            gtk_widget_set_visible(detailBox, false);
+            gtk_widget_set_visible(detailScroll, false);
             updateHeader();
             rebuildList();
         }
     }
 }
 
-void SidebarMarkingPage::openManifest(const fs::path& path) { importManifest(path); }
+void SidebarMarkingPage::openManifest(const fs::path& path) { importManifest(path, true); }
+
+void SidebarMarkingPage::restoreManifest(const fs::path& path) { importManifest(path, false); }
 
 bool SidebarMarkingPage::passesFilter(const MarkingAnnotation& annotation) const {
     const char* active = gtk_combo_box_get_active_id(GTK_COMBO_BOX(filterCombo));
     if (active == nullptr || std::string_view(active) == "all") {
         return true;
+    }
+    if (std::string_view(active) == "unreviewed") {
+        return !annotation.reviewed;
     }
     return std::string_view(active) == xoj::marking::toString(annotation.verdict);
 }
@@ -305,26 +404,37 @@ void SidebarMarkingPage::rebuildList() {
     });
     size_t displayOrdinal = 0;
     for (const size_t index: orderedIndices) {
-        ++displayOrdinal;
         const auto& annotation = marking->annotations[index];
         if (!passesFilter(annotation)) {
             continue;
         }
+        ++displayOrdinal;
+        const auto part = std::find_if(marking->parts.begin(), marking->parts.end(),
+                                       [&annotation](const auto& candidate) {
+                                           return candidate.id == annotation.partId;
+                                       });
         std::ostringstream text;
-        text << verdictGlyph(annotation.verdict) << "  " << displayOrdinal << ". " << annotation.partId;
+        text << verdictGlyph(annotation.verdict) << "  " << displayOrdinal << ". "
+             << (part == marking->parts.end() ? annotation.partId : part->label);
         if (!annotation.title.empty()) {
             text << "\n" << annotation.title;
         }
-        text << "\nPage " << annotation.page;
-        if (annotation.maxMarks > 0.0) {
-            text << "   " << marksText(annotation.awardedMarks, annotation.maxMarks);
+        if (!annotation.comment.empty()) {
+            constexpr size_t PREVIEW_LENGTH = 90;
+            text << "\n"
+                 << annotation.comment.substr(0, PREVIEW_LENGTH)
+                 << (annotation.comment.size() > PREVIEW_LENGTH ? "…" : "");
         }
+        text << "\nPage " << annotation.page;
         if (annotation.reviewed) {
             text << "   Reviewed";
         }
 
         GtkWidget* button = gtk_button_new_with_label(text.str().c_str());
         gtk_widget_set_hexpand(button, true);
+        if (selectedAnnotation && *selectedAnnotation == index) {
+            gtk_widget_add_css_class(button, "suggested-action");
+        }
 #if GTK_MAJOR_VERSION == 3
         auto* child = gtk_bin_get_child(GTK_BIN(button));
 #else
@@ -335,6 +445,9 @@ void SidebarMarkingPage::rebuildList() {
             gtk_label_set_line_wrap(GTK_LABEL(child), true);
         }
         gtk_box_append(GTK_BOX(listBox), button);
+#if GTK_MAJOR_VERSION == 3
+        gtk_widget_show(button);
+#endif
         g_signal_connect_data(
                 button, "clicked",
                 G_CALLBACK(+[](GtkButton*, gpointer data) {
@@ -375,29 +488,70 @@ void SidebarMarkingPage::showAnnotation(size_t index) {
     if (!marking || index >= marking->annotations.size()) {
         return;
     }
+    if (selectedAnnotation && *selectedAnnotation != index) {
+        if (!commitDetailEdits()) {
+            return;
+        }
+        try {
+            saveWorkingManifest();
+        } catch (const std::exception& exception) {
+            showMessage(GTK_MESSAGE_ERROR, _("Could not save marking edits"), exception.what());
+        }
+        updateHeader();
+    }
     selectedAnnotation = index;
     const auto& annotation = marking->annotations[index];
     gtk_entry_set_text(GTK_ENTRY(detailTitle), annotation.title.c_str());
-    gtk_entry_set_text(GTK_ENTRY(detailPart), annotation.partId.c_str());
+    gtk_combo_box_set_active_id(GTK_COMBO_BOX(detailPart), annotation.partId.c_str());
+    gtk_label_set_text(GTK_LABEL(detailEvidence),
+                       annotation.evidenceFromScript.empty() ? _("No AI evidence was supplied.")
+                                                             : annotation.evidenceFromScript.c_str());
     gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(detailComment)), annotation.comment.c_str(), -1);
     gtk_text_buffer_set_text(gtk_text_view_get_buffer(GTK_TEXT_VIEW(detailHowToImprove)),
                              annotation.howToImprove.c_str(), -1);
     gtk_combo_box_set_active_id(GTK_COMBO_BOX(detailVerdict), xoj::marking::toString(annotation.verdict));
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(detailReviewed), annotation.reviewed);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(detailAwarded), annotation.awardedMarks);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(detailMax), annotation.maxMarks);
-    gtk_widget_set_visible(detailBox, true);
+    const auto part = std::find_if(marking->parts.begin(), marking->parts.end(),
+                                   [&annotation](const auto& candidate) {
+                                       return candidate.id == annotation.partId;
+                                   });
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(detailAwarded),
+                              part == marking->parts.end() ? 0.0 : part->awardedMarks);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(detailMax), part == marking->parts.end() ? 0.0 : part->maxMarks);
+    gtk_widget_set_visible(detailScroll, true);
+    g_idle_add(
+            [](gpointer data) -> gboolean {
+                static_cast<SidebarMarkingPage*>(data)->rebuildList();
+                return G_SOURCE_REMOVE;
+            },
+            this);
 }
 
 void SidebarMarkingPage::navigateToAnnotation(size_t index) {
     if (!marking || index >= marking->annotations.size()) {
         return;
     }
+    syncAnnotationGeometry();
     const auto& annotation = marking->annotations[index];
     Document* document = control->getDocument();
     if (annotation.page == 0 || annotation.page > document->getPageCount()) {
         return;
     }
+
+    const auto previousHighlightedPage = highlightedPage;
+    document->lock();
+    for (const auto& [id, element]: annotationElements) {
+        if (auto* stroke = dynamic_cast<Stroke*>(element)) {
+            stroke->setWidth(id == annotation.id ? 4.0 : 1.8);
+        }
+    }
+    highlightedPage = annotation.page - 1;
+    document->unlock();
+    if (previousHighlightedPage && *previousHighlightedPage < document->getPageCount() &&
+        *previousHighlightedPage != *highlightedPage) {
+        control->getWindow()->getXournal()->layerChanged(*previousHighlightedPage);
+    }
+    control->getWindow()->getXournal()->layerChanged(*highlightedPage);
 
     document->lock_shared();
     const PageRef page = document->getPage(annotation.page - 1);
@@ -411,13 +565,49 @@ void SidebarMarkingPage::navigateToAnnotation(size_t index) {
                                              box.x1 * width / 1000.0, box.y1 * height / 1000.0});
 }
 
-void SidebarMarkingPage::applyDetailEdits() {
+void SidebarMarkingPage::changeSelectedPart() {
     if (!marking || !selectedAnnotation || *selectedAnnotation >= marking->annotations.size()) {
         return;
     }
+    const char* selectedPartId = gtk_combo_box_get_active_id(GTK_COMBO_BOX(detailPart));
+    if (selectedPartId == nullptr) {
+        return;
+    }
+    auto& annotation = marking->annotations[*selectedAnnotation];
+    if (annotation.partId == selectedPartId) {
+        return;
+    }
+
+    // The score controls still belong to the annotation's previous part. Persist
+    // those values before changing the relationship, then display the new part's
+    // authoritative score instead of copying the old score into it.
+    if (!marking->updatePartMarks(annotation.partId, gtk_spin_button_get_value(GTK_SPIN_BUTTON(detailAwarded)),
+                                  gtk_spin_button_get_value(GTK_SPIN_BUTTON(detailMax)))) {
+        showMessage(GTK_MESSAGE_ERROR, _("Invalid part score"),
+                    _("Awarded marks must be between zero and the maximum marks."));
+        gtk_combo_box_set_active_id(GTK_COMBO_BOX(detailPart), annotation.partId.c_str());
+        return;
+    }
+    annotation.partId = selectedPartId;
+    const auto part = std::find_if(marking->parts.begin(), marking->parts.end(),
+                                   [&annotation](const auto& candidate) {
+                                       return candidate.id == annotation.partId;
+                                   });
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(detailAwarded),
+                              part == marking->parts.end() ? 0.0 : part->awardedMarks);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(detailMax), part == marking->parts.end() ? 0.0 : part->maxMarks);
+}
+
+bool SidebarMarkingPage::commitDetailEdits() {
+    if (!marking || !selectedAnnotation || *selectedAnnotation >= marking->annotations.size()) {
+        return true;
+    }
     auto& annotation = marking->annotations[*selectedAnnotation];
     annotation.title = gtk_entry_get_text(GTK_ENTRY(detailTitle));
-    annotation.partId = gtk_entry_get_text(GTK_ENTRY(detailPart));
+    const char* partId = gtk_combo_box_get_active_id(GTK_COMBO_BOX(detailPart));
+    if (partId) {
+        annotation.partId = partId;
+    }
 
     GtkTextBuffer* buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(detailComment));
     GtkTextIter start;
@@ -437,10 +627,11 @@ void SidebarMarkingPage::applyDetailEdits() {
     annotation.verdict = verdict ? xoj::marking::verdictFromString(verdict).value_or(Verdict::Unresolved)
                                  : Verdict::Unresolved;
     annotation.reviewed = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(detailReviewed));
-    annotation.awardedMarks = gtk_spin_button_get_value(GTK_SPIN_BUTTON(detailAwarded));
-    annotation.maxMarks = gtk_spin_button_get_value(GTK_SPIN_BUTTON(detailMax));
-    if (marking->mode == xoj::marking::MarkingMode::PageBoxes && annotation.maxMarks > 0.0) {
-        marking->updatePartMarks(annotation.partId, annotation.awardedMarks, annotation.maxMarks);
+    if (!marking->updatePartMarks(annotation.partId, gtk_spin_button_get_value(GTK_SPIN_BUTTON(detailAwarded)),
+                                  gtk_spin_button_get_value(GTK_SPIN_BUTTON(detailMax)))) {
+        showMessage(GTK_MESSAGE_ERROR, _("Invalid part score"),
+                    _("Awarded marks must be between zero and the maximum marks."));
+        return false;
     }
     if (const auto mapped = annotationElements.find(annotation.id); mapped != annotationElements.end()) {
         Document* document = control->getDocument();
@@ -470,7 +661,103 @@ void SidebarMarkingPage::applyDetailEdits() {
             annotationElements.erase(mapped);
         }
     }
+    return true;
+}
 
+void SidebarMarkingPage::applyDetailEdits() {
+    if (!commitDetailEdits()) {
+        return;
+    }
+    try {
+        saveWorkingManifest();
+    } catch (const std::exception& exception) {
+        showMessage(GTK_MESSAGE_ERROR, _("Could not save marking edits"), exception.what());
+    }
+    updateHeader();
+    rebuildList();
+}
+
+void SidebarMarkingPage::saveWorkingManifest() {
+    if (marking && manifestPath) {
+        MarkingXml::save(*marking, *manifestPath);
+        const auto recoveryPointer = Util::getConfigFile("emergencysave.xoppmark.path");
+        std::ofstream pointer(recoveryPointer, std::ios::binary | std::ios::trunc);
+        if (!pointer) {
+            throw std::runtime_error("Could not create the marking recovery pointer");
+        }
+        pointer << fs::absolute(*manifestPath).string();
+        if (!pointer) {
+            throw std::runtime_error("Could not write the marking recovery pointer");
+        }
+    }
+}
+
+bool SidebarMarkingPage::checkpointRecoveryState(bool reportFailure) {
+    if (!marking || !manifestPath) {
+        return true;
+    }
+    try {
+        if (selectedAnnotation && !commitDetailEdits()) {
+            return false;
+        }
+        syncAnnotationGeometry();
+        saveWorkingManifest();
+        return true;
+    } catch (const std::exception& exception) {
+        g_warning("Could not checkpoint structured marking state: %s", exception.what());
+        if (reportFailure) {
+            showMessage(GTK_MESSAGE_ERROR, _("Could not preserve the current marking draft"),
+                        _("The new draft was not opened. Fix the current manifest's permissions or choose a writable "
+                          "location, then try again."));
+        }
+        return false;
+    }
+}
+
+void SidebarMarkingPage::navigateRelative(int direction) {
+    if (!marking || marking->annotations.empty()) {
+        return;
+    }
+    std::vector<size_t> visible;
+    visible.reserve(marking->annotations.size());
+    for (size_t index = 0; index < marking->annotations.size(); ++index) {
+        if (passesFilter(marking->annotations[index])) {
+            visible.push_back(index);
+        }
+    }
+    if (visible.empty()) {
+        return;
+    }
+    const auto current = selectedAnnotation ? std::find(visible.begin(), visible.end(), *selectedAnnotation)
+                                            : visible.end();
+    size_t position = current == visible.end() ? 0U : static_cast<size_t>(std::distance(visible.begin(), current));
+    if (current != visible.end()) {
+        position = direction < 0 ? (position + visible.size() - 1) % visible.size()
+                                 : (position + 1) % visible.size();
+    }
+    const size_t next = visible[position];
+    showAnnotation(next);
+    navigateToAnnotation(next);
+}
+
+void SidebarMarkingPage::markAllReviewed() {
+    if (!marking) {
+        return;
+    }
+    if (!commitDetailEdits()) {
+        return;
+    }
+    for (auto& annotation: marking->annotations) {
+        annotation.reviewed = true;
+    }
+    if (selectedAnnotation) {
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(detailReviewed), true);
+    }
+    try {
+        saveWorkingManifest();
+    } catch (const std::exception& exception) {
+        showMessage(GTK_MESSAGE_ERROR, _("Could not save marking edits"), exception.what());
+    }
     updateHeader();
     rebuildList();
 }
@@ -489,7 +776,7 @@ void SidebarMarkingPage::addAnnotationFromSelection() {
         return;
     }
 
-    const auto rect = selection->getRect();
+    const auto rect = selection->getSnappedBounds();
     const PageRef page = control->getCurrentPage();
     const double width = page->getWidth();
     const double height = page->getHeight();
@@ -506,10 +793,19 @@ void SidebarMarkingPage::addAnnotationFromSelection() {
         return;
     }
 
+    if (marking->parts.empty()) {
+        showMessage(GTK_MESSAGE_ERROR, _("No question parts are available"),
+                    _("The marking draft must define at least one question part before feedback can be added."));
+        return;
+    }
     const std::string partId =
-            selectedAnnotation ? marking->annotations[*selectedAnnotation].partId : std::string("unassigned");
+            selectedAnnotation ? marking->annotations[*selectedAnnotation].partId : marking->parts.front().id;
     MarkingAnnotation annotation;
-    annotation.id = "a" + std::to_string(marking->annotations.size() + 1);
+    size_t idNumber = marking->annotations.size() + 1;
+    do {
+        annotation.id = "a" + std::to_string(idNumber++);
+    } while (std::any_of(marking->annotations.begin(), marking->annotations.end(),
+                         [&annotation](const auto& existing) { return existing.id == annotation.id; }));
     annotation.page = pageNumber + 1;
     annotation.partId = partId;
     annotation.verdict = Verdict::Partial;
@@ -519,15 +815,6 @@ void SidebarMarkingPage::addAnnotationFromSelection() {
     annotation.source = "teacher";
     if (marking->mode == xoj::marking::MarkingMode::Debox) {
         annotation.diagramAnchor = xoj::marking::DiagramAnchor{"teacher-selection-" + annotation.id};
-    } else {
-        const auto part = std::find_if(marking->parts.begin(), marking->parts.end(),
-                                       [&annotation](const auto& candidate) {
-                                           return candidate.id == annotation.partId;
-                                       });
-        if (part != marking->parts.end()) {
-            annotation.awardedMarks = part->awardedMarks;
-            annotation.maxMarks = part->maxMarks;
-        }
     }
     syncAnnotationGeometry();
     marking->annotations.push_back(std::move(annotation));
@@ -538,86 +825,113 @@ void SidebarMarkingPage::addAnnotationFromSelection() {
     showAnnotation(marking->annotations.size() - 1);
 }
 
-void SidebarMarkingPage::importManifest(const fs::path& path) {
+void SidebarMarkingPage::importManifest(const fs::path& path, bool allowSourcePdfSwitch) {
+    xoj::marking::MarkingDocument draft = MarkingXml::load(path);
+    const auto issues = draft.validate(std::nullopt, false);
+    std::ostringstream validationErrors;
+    for (const auto& issue: issues) {
+        if (issue.severity == ValidationIssue::Severity::Error) {
+            validationErrors << issue.location << ": " << issue.message << "\n";
+        }
+    }
+    if (!validationErrors.str().empty()) {
+        throw std::runtime_error("The marking draft needs correction before it can be opened:\n" +
+                                 validationErrors.str());
+    }
+
+    const fs::path sourceReference(draft.sourcePdf);
+    if (sourceReference.empty() || sourceReference.is_absolute() ||
+        std::find(sourceReference.begin(), sourceReference.end(), fs::path("..")) != sourceReference.end()) {
+        throw std::runtime_error(
+                "The marking draft must reference a PDF in its own folder. Absolute and parent paths are not allowed.");
+    }
+    const fs::path sourcePath = fs::absolute(path.parent_path() / sourceReference);
+    if (!fs::exists(sourcePath)) {
+        throw std::runtime_error(
+                "Source PDF not found. Put the PDF beside the .xoppmark file, then import the draft again.");
+    }
+    if (!draft.sourceSha256.empty() &&
+        g_ascii_strcasecmp(sha256File(sourcePath).c_str(), draft.sourceSha256.c_str()) != 0) {
+        throw std::runtime_error(
+                "The PDF beside this draft is not the student script it was created for. Choose the matching files.");
+    }
+
+    std::error_code expectedError;
+    std::error_code actualError;
+    const auto expected = fs::weakly_canonical(sourcePath, expectedError);
+    const auto currentPath = control->getDocument()->getPdfFilepath();
+    const auto actual = currentPath.empty() ? fs::path() : fs::weakly_canonical(currentPath, actualError);
+    if (!expectedError && !actualError && !actual.empty() && expected == actual) {
+        activateManifest(std::move(draft), path, sourcePath);
+        materializeAnnotations();
+        return;
+    }
+    if (!allowSourcePdfSwitch) {
+        throw std::runtime_error(
+                "The saved marking draft belongs to a different PDF, so it was not attached to the recovered document.");
+    }
+
+    // Keep the current draft authoritative until the PDF switch has actually
+    // succeeded. Cancelling the document-close prompt must leave both the old
+    // PDF and its marking state intact.
+    if (!checkpointRecoveryState(true)) {
+        return;
+    }
+    control->openMarkingSourcePdf(
+            sourcePath, [this, draft = std::move(draft), path, sourcePath](bool opened) mutable {
+        if (opened) {
+            activateManifest(std::move(draft), path, sourcePath);
+            materializeAnnotations();
+        } else {
+            showMessage(GTK_MESSAGE_ERROR, _("Source PDF was not opened"),
+                        _("The current draft is unchanged. Save any open document, then import the new draft again."));
+        }
+    });
+}
+
+void SidebarMarkingPage::activateManifest(xoj::marking::MarkingDocument draft, const fs::path& path,
+                                          const fs::path& sourcePath) {
     annotationElements.clear();
-    marking = MarkingXml::load(path);
+    marking = std::move(draft);
     manifestPath = path;
-    boundSourcePdf.reset();
+    boundSourcePdf = sourcePath;
     selectedAnnotation.reset();
-    gtk_widget_set_visible(detailBox, false);
+    highlightedPage.reset();
+    gtk_widget_set_visible(detailScroll, false);
+
+    gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(detailPart));
+    for (const auto& part: marking->parts) {
+        gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(detailPart), part.id.c_str(), part.label.c_str());
+    }
     updateHeader();
     rebuildList();
-
-    if (!marking->sourcePdf.empty()) {
-        fs::path sourcePath = path.parent_path() / fs::path(marking->sourcePdf);
-        if (fs::exists(sourcePath)) {
-            boundSourcePdf = fs::absolute(sourcePath);
-            control->openMarkingSourcePdf(sourcePath, [this](bool opened) {
-                if (opened) {
-                    materializeAnnotations();
-                } else {
-                    marking.reset();
-                    manifestPath.reset();
-                    boundSourcePdf.reset();
-                    annotationElements.clear();
-                    updateHeader();
-                    rebuildList();
-                    showMessage(GTK_MESSAGE_ERROR, _("Could not open source PDF"),
-                                _("The marking draft was closed because it could not be bound to its source PDF."));
-                }
-            });
-        } else {
-            marking.reset();
-            manifestPath.reset();
-            boundSourcePdf.reset();
-            annotationElements.clear();
-            updateHeader();
-            rebuildList();
-            showMessage(GTK_MESSAGE_ERROR, _("Source PDF not found"),
-                        _("The marking draft was closed because its source PDF could not be found beside it."));
-        }
-    } else {
-        marking.reset();
-        manifestPath.reset();
-        updateHeader();
-        rebuildList();
-        showMessage(GTK_MESSAGE_ERROR, _("Source PDF is required"),
-                    _("The marking draft was closed because it does not identify a source PDF."));
-    }
 }
 
 void SidebarMarkingPage::materializeAnnotations() {
     annotationElements.clear();
+    highlightedPage.reset();
     if (!marking) {
         return;
     }
 
     Document* document = control->getDocument();
-    auto undo = std::make_unique<GroupUndoAction>();
-    bool changedDocument = false;
     for (size_t pageIndex = 0; pageIndex < document->getPageCount(); ++pageIndex) {
         document->lock();
         PageRef page = document->getPage(pageIndex);
         const double width = page->getWidth();
         const double height = page->getHeight();
         Layer* previousLayer = nullptr;
-        Layer::Index previousPosition = 0;
-        Layer::Index candidatePosition = 0;
         for (auto* candidate: page->getLayers()) {
             if (candidate->getName() == FEEDBACK_LAYER_NAME) {
                 previousLayer = candidate;
-                previousPosition = candidatePosition;
                 break;
             }
-            ++candidatePosition;
         }
         document->unlock();
 
         if (previousLayer) {
             control->getLayerController()->removeLayer(page, previousLayer);
-            undo->addAction(std::make_unique<RemoveLayerUndoAction>(
-                    control->getLayerController(), page, previousLayer, previousPosition));
-            changedDocument = true;
+            delete previousLayer;
         }
 
         auto layer = std::make_unique<Layer>();
@@ -649,13 +963,7 @@ void SidebarMarkingPage::materializeAnnotations() {
             const auto position = page->getLayerCount();
             Layer* insertedLayer = layer.release();
             control->getLayerController()->insertLayer(page, insertedLayer, position);
-            undo->addAction(std::make_unique<InsertLayerUndoAction>(
-                    control->getLayerController(), page, insertedLayer, position));
-            changedDocument = true;
         }
-    }
-    if (changedDocument) {
-        control->getUndoRedoHandler()->addUndoAction(std::move(undo));
     }
 }
 
@@ -691,7 +999,7 @@ void SidebarMarkingPage::syncAnnotationGeometry() {
         }
         const double width = page->getWidth();
         const double height = page->getHeight();
-        const auto bounds = element->second->getBoundingBox();
+        const auto bounds = element->second->getSnappedBounds();
         document->unlock_shared();
         const auto clamp = [](double value) { return std::clamp(static_cast<int>(std::lround(value)), 0, 1000); };
         annotation.box = {
@@ -733,20 +1041,43 @@ void SidebarMarkingPage::exportManifest(const fs::path& path) {
     if (!marking) {
         return;
     }
+    if (!commitDetailEdits()) {
+        throw std::runtime_error("Awarded marks must be between zero and the maximum marks.");
+    }
     syncAnnotationGeometry();
     const size_t pageCount = control->getDocument()->getPageCount();
     const auto issues = marking->validate(pageCount == 0 ? std::nullopt : std::optional<size_t>(pageCount), true);
-    const auto firstError = std::find_if(issues.begin(), issues.end(), [](const auto& issue) {
-        return issue.severity == ValidationIssue::Severity::Error;
-    });
-    if (firstError != issues.end()) {
-        throw std::runtime_error(firstError->location + ": " + firstError->message);
+    std::ostringstream errors;
+    for (const auto& issue: issues) {
+        if (issue.severity == ValidationIssue::Severity::Error) {
+            errors << "• " << issue.location << ": " << issue.message << "\n";
+        }
+    }
+    if (!errors.str().empty()) {
+        throw std::runtime_error("Resolve these items before exporting:\n" + errors.str());
     }
     if (boundSourcePdf) {
-        std::error_code error;
         const auto destinationDirectory = fs::absolute(path).parent_path();
-        const auto relativeSource = fs::relative(*boundSourcePdf, destinationDirectory, error);
-        marking->sourcePdf = error ? boundSourcePdf->string() : relativeSource.string();
+        const auto source = fs::absolute(*boundSourcePdf);
+        const auto portableSource = destinationDirectory / source.filename();
+        std::error_code error;
+        if (source != portableSource) {
+            if (fs::exists(portableSource)) {
+                if (!fs::equivalent(source, portableSource, error) || error) {
+                    throw std::runtime_error(
+                            _("The export folder already contains a different PDF with the same name. Choose another "
+                              "folder so the review can remain portable."));
+                }
+            } else {
+                fs::copy_file(source, portableSource, fs::copy_options::none, error);
+                if (error) {
+                    throw std::runtime_error(
+                            _("Could not copy the source PDF beside the exported review. Choose a writable folder."));
+                }
+            }
+        }
+        marking->sourcePdf = portableSource.filename().string();
+        marking->sourceSha256 = sha256File(source);
     }
     MarkingXml::save(*marking, path);
     manifestPath = path;

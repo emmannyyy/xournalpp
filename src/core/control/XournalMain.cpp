@@ -7,6 +7,7 @@
 #include <cstdio>     // for printf
 #include <cstdlib>    // for exit, size_t
 #include <exception>  // for exception
+#include <fstream>    // for ifstream
 #include <iostream>   // for operator<<, endl, basic_...
 #include <locale>     // for locale
 #include <memory>     // for unique_ptr, allocator
@@ -32,6 +33,7 @@
 #include "gui/GladeSearchpath.h"             // for GladeSearchpath
 #include "gui/MainWindow.h"                  // for MainWindow
 #include "gui/XournalView.h"                 // for XournalView
+#include "gui/sidebar/Sidebar.h"              // for Sidebar
 #include "model/Document.h"                  // for Document
 #include "undo/EmergencySaveRestore.h"       // for EmergencySaveRestore
 #include "undo/UndoRedoHandler.h"            // for UndoRedoHandler
@@ -99,25 +101,48 @@ static void deleteFile(const fs::path& file, GtkWindow* win) {
 
 void checkForEmergencySave(Control* control) {
     auto file = Util::getConfigFile("emergencysave.xopp");
+    const auto markingPointer = Util::getConfigFile("emergencysave.xoppmark.path");
 
     if (!fs::exists(file)) {
         return;
     }
 
-    const std::string msg = _("Xournal++ crashed last time. Would you like to restore the last edited file?");
+    const std::string msg = _("StudySzn Marker closed unexpectedly last time. Restore the recovered marking document?");
     enum { DELETE_FILE = 1, RESTORE_FILE };
     XojMsgBox::askQuestion(
             control->getGtkWindow(), _("Recovery file detected"), msg,
             {{_("Delete file"), DELETE_FILE}, {_("Restore file"), RESTORE_FILE}},
-            [file = std::move(file), ctrl = control](int response) mutable {
+            [file = std::move(file), markingPointer, ctrl = control](int response) mutable {
                 if (response == DELETE_FILE) {
                     deleteFile(file, ctrl->getGtkWindow());
+                    std::error_code error;
+                    fs::remove(markingPointer, error);
                 } else if (response == RESTORE_FILE) {
-                    ctrl->openFileWithoutSavingTheCurrentDocument(file, false, -1, [ctrl, file](bool) {
+                    ctrl->openFileWithoutSavingTheCurrentDocument(
+                            file, false, -1, [ctrl, file, markingPointer](bool opened) {
+                        if (!opened) {
+                            return;
+                        }
                         ctrl->getDocument()->setFilepath("");
 
                         // Todo Make sure the document is changed + ask for saving
                         ctrl->getUndoRedoHandler()->addUndoAction(std::make_unique<EmergencySaveRestore>());
+                        std::ifstream pointer(markingPointer, std::ios::binary);
+                        std::string manifest;
+                        std::getline(pointer, manifest);
+                        if (!manifest.empty() && fs::exists(fs::path(manifest))) {
+                            try {
+                                ctrl->getSidebar()->restoreMarkingManifest(fs::path(manifest));
+                            } catch (const std::exception& exception) {
+                                XojMsgBox::showErrorToUser(
+                                        ctrl->getGtkWindow(),
+                                        FS(_F("The PDF was recovered, but its structured marking draft could not be "
+                                              "restored: {1}") %
+                                           exception.what()));
+                            }
+                        }
+                        std::error_code pointerError;
+                        fs::remove(markingPointer, pointerError);
                         deleteFile(file, ctrl->getGtkWindow());
                     });
                 }
@@ -458,12 +483,15 @@ void on_startup(GApplication* application, XMPtr app_data) {
         }
     }
 
+    const bool openedRequestedDocument = !p.empty();
     app_data->control->openFileWithoutSavingTheCurrentDocument(
             std::move(p), app_data->attachMode, app_data->openAtPageNumber - 1,
-            [ctrl = app_data->control.get(), app = GTK_APPLICATION(application)](bool) {
+            [ctrl = app_data->control.get(), app = GTK_APPLICATION(application), openedRequestedDocument](bool) {
                 ctrl->getScheduler()->start();
 
-                checkForEmergencySave(ctrl);
+                if (!openedRequestedDocument) {
+                    checkForEmergencySave(ctrl);
+                }
 
                 // There is a timing issue with the layout
                 // This fixes it, see #405

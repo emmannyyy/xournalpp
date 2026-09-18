@@ -1,6 +1,7 @@
 #include "MarkingDocument.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <numeric>
 #include <string>
@@ -45,14 +46,6 @@ bool MarkingDocument::updatePartMarks(const std::string& partId, double awarded,
     }
     part->awardedMarks = awarded;
     part->maxMarks = maximum;
-    if (mode == MarkingMode::PageBoxes) {
-        for (auto& annotation: annotations) {
-            if (annotation.partId == partId) {
-                annotation.awardedMarks = awarded;
-                annotation.maxMarks = maximum;
-            }
-        }
-    }
     return true;
 }
 
@@ -73,6 +66,12 @@ std::vector<ValidationIssue> MarkingDocument::validate(std::optional<size_t> pag
     }
     if (mode == MarkingMode::PageBoxes && !cancelledWorkExcluded) {
         error("assignment", "STEM producer must attest that cancelled work was excluded");
+    }
+    if (!sourceSha256.empty() &&
+        (sourceSha256.size() != 64 ||
+         !std::all_of(sourceSha256.begin(), sourceSha256.end(),
+                      [](unsigned char character) { return std::isxdigit(character) != 0; }))) {
+        error("assignment", "Source PDF SHA-256 must be 64 hexadecimal characters");
     }
 
     std::unordered_set<std::string> partIds;
@@ -109,7 +108,11 @@ std::vector<ValidationIssue> MarkingDocument::validate(std::optional<size_t> pag
             error(location, "Question part ID does not reference a known part");
         }
         if (annotation.verdict == Verdict::Unresolved) {
-            error(location, "Annotation verdict is unresolved");
+            if (requireReviewed) {
+                error(location, "Annotation verdict is unresolved");
+            } else {
+                warning(location, "Annotation verdict is unresolved");
+            }
         }
         if (annotation.source != "ai" && annotation.source != "teacher") {
             error(location, "Annotation source must be ai or teacher");
@@ -136,14 +139,6 @@ std::vector<ValidationIssue> MarkingDocument::validate(std::optional<size_t> pag
             }
             if (annotation.targetType != "image") {
                 error(location, "Page-box annotations must target the original page image");
-            }
-            const auto part = std::find_if(parts.begin(), parts.end(), [&annotation](const auto& candidate) {
-                return candidate.id == annotation.partId;
-            });
-            if (part != parts.end() &&
-                (std::abs(part->awardedMarks - annotation.awardedMarks) > 1e-9 ||
-                 std::abs(part->maxMarks - annotation.maxMarks) > 1e-9)) {
-                error(location, "Page-box annotation marks must match its authoritative part score");
             }
         }
         if (requireReviewed && !annotation.reviewed) {

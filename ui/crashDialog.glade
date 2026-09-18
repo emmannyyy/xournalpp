@@ -20,7 +20,7 @@
             <property name="visible">True</property>
             <property name="can-focus">False</property>
             <property name="margin-bottom">8</property>
-            <property name="label" translatable="yes">Oops... Xournal++ encountered a fatal error</property>
+            <property name="label" translatable="yes">StudySzn Marker encountered an unexpected error</property>
             <attributes>
               <attribute name="weight" value="bold"/>
             </attributes>
@@ -36,7 +36,7 @@
             <property name="visible">True</property>
             <property name="can-focus">False</property>
             <property name="margin-bottom">8</property>
-            <property name="label" translatable="yes">Please consider filling a bug report (see button below). Attach the following log to your report.</property>
+            <property name="label" translatable="yes">Your recovery details remain on this Mac. Review the local log below if support asks for it.</property>
           </object>
           <packing>
             <property name="expand">False</property>
@@ -134,7 +134,7 @@
             <property name="margin-top">4</property>
             <child>
               <object class="GtkButton" id="reportBtn">
-                <property name="visible">True</property>
+                <property name="visible">False</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">True</property>
                 <property name="tooltip-text" translatable="yes">Open your web browser with a partially pre-filled bug report</property>
@@ -157,7 +157,7 @@
             </child>
             <child>
               <object class="GtkLabel">
-                <property name="visible">True</property>
+                <property name="visible">False</property>
                 <property name="can-focus">False</property>
                 <property name="margin-start">4</property>
                 <property name="margin-end">10</property>

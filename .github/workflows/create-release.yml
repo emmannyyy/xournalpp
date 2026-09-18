@@ -13,12 +13,12 @@ on:
 
 env:
   build-targets-json: '.github/available-build-targets.json'
-  build-type: 'RelWithDebInfo'           # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  build-type: 'Release'                  # Public artifacts must not contain developer debug paths.
   nightly-build-branch: 'master'
 
 jobs:
   prepare:
-    if: github.repository == 'xournalpp/xournalpp'
+    if: github.repository == 'xournalpp/xournalpp' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     name: 'Prepare jobs'
     outputs:
@@ -145,7 +145,7 @@ jobs:
             echo 'body<<EOF'
             echo "This is a new minor version of Xournal++ with bug fixes and improvements from the community."
             sed -n '/^xournalpp ([0-9.-]*).*/,/^ -- .*/{ /^xournalpp .*/! { /^ -- .*/ q;p } }' changelog/debian/changelog
-            echo "See https://github.com/xournalpp/xournalpp/blob/${{ needs.prepare.outputs.tag }}/CHANGELOG.md for a more detailled list of changes."
+            echo "See https://github.com/${{ github.repository }}/blob/${{ needs.prepare.outputs.tag }}/CHANGELOG.md for a more detailed list of changes."
             echo EOF
           } >> "$GITHUB_ENV"
       - uses: ncipollo/release-action@v1

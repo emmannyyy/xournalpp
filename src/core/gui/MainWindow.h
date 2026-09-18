@@ -85,6 +85,7 @@ public:
 
     void setMenubarVisible(bool visible);
     void setSidebarVisible(bool visible);
+    void ensureSidebarWidth(int minimumWidth);
     void setToolbarVisible(bool visible);
 
     Control* getControl() const;

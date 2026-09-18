@@ -9,6 +9,7 @@
  * @license GNU GPLv2
  */
 
+#include <array>
 #include <iostream>
 #include <regex>
 #include <sstream>
@@ -40,42 +41,6 @@ static constexpr const char* UI_RESOURCE = "/org/xournalpp/wrapper/ui/crashDialo
 // See CrashHandler::emergencySave()
 static constexpr const char* EMERGENCY_SAVE_MSG_REGEX = "Successfully saved document to \"(.*)\"";
 
-static auto escape(const std::string& str) {
-    return xoj::util::OwnedCString::assumeOwnership(g_uri_escape_string(str.c_str(), nullptr, true));
-}
-
-/// Create a URL which opens a crash report on github, pre-filled with the data we can get
-static std::string makeCrashReportURL() {
-    // See .github/ISSUE_TEMPLATE/crash_report.yml for the keywords (id)
-    std::stringstream str;
-    str.imbue(std::locale::classic());
-
-    str << PROJECT_CRASHREPORT;
-    str << "&os=" << escape(xoj::util::getOsInfo()).get();
-
-#ifdef __linux__
-    auto getEnvTruncated = [](const char* var) {
-        if (auto* value = std::getenv(var); value) {
-            auto d = std::string(value);
-            if (d.length() > 20) {
-                // No control over the environment variable: limit the length
-                d.resize(20);
-            }
-            return d;
-        } else {
-            return std::string("unknown");
-        }
-    };
-    str << "&desktop=" << escape(getEnvTruncated("DESKTOP_SESSION") + " " + getEnvTruncated("XDG_SESSION_TYPE")).get();
-    str << "&displayserver=" << escape(xoj::util::getGdkBackend()).get();
-#endif
-
-    str << "&version=" << escape(xoj::util::getXournalppVersion()).get();
-    str << "&gtk=" << gtk_major_version << "." << gtk_minor_version << "." << gtk_micro_version;
-
-    return str.str();
-}
-
 static void activate(GtkApplication* app, std::string* str) {
     xoj::util::GObjectSPtr<GtkBuilder> builder(gtk_builder_new_from_resource(UI_RESOURCE), xoj::util::adopt);
     auto* window = GTK_WIDGET(gtk_builder_get_object(builder.get(), "crashDialog"));
@@ -96,13 +61,34 @@ static void activate(GtkApplication* app, std::string* str) {
     g_signal_connect_object(gtk_builder_get_object(builder.get(), "closeBtn"), "clicked",
                             G_CALLBACK(+[](GtkButton* btn, gpointer w) { gtk_window_close(GTK_WINDOW(w)); }), window,
                             GConnectFlags(0));
-    g_signal_connect_object(gtk_builder_get_object(builder.get(), "reportBtn"), "clicked",
-                            G_CALLBACK(+[](GtkButton* btn, gpointer w) {
-                                XojMsgBox::openURL(GTK_WINDOW(w), makeCrashReportURL().c_str());
-                            }),
-                            window, GConnectFlags(0));
     gtk_window_present(GTK_WINDOW(window));
 }
+
+#ifdef __APPLE__
+static void configurePrivateRuntimeDirectories(GSubprocessLauncher* launcher) {
+    const auto root = fs::path(g_get_home_dir()) / "Library" / "Application Support" / "StudySzn Marker";
+    const std::array<std::pair<const char*, fs::path>, 4> directories = {
+            std::pair{"XDG_CONFIG_HOME", root / "config"},
+            std::pair{"XDG_CACHE_HOME", root / "cache"},
+            std::pair{"XDG_STATE_HOME", root / "state"},
+            std::pair{"XDG_DATA_HOME", root / "data"},
+    };
+    for (const auto& [variable, directory]: directories) {
+        const auto value = directory.string();
+        g_mkdir_with_parents(value.c_str(), 0700);
+        g_subprocess_launcher_setenv(launcher, variable, value.c_str(), true);
+    }
+
+    const auto resources = Util::getExePath().parent_path() / "Resources";
+    const auto bundledData = (resources / "share").string();
+    const char* existingData = g_getenv("XDG_DATA_DIRS");
+    const std::string dataDirectories =
+            existingData && *existingData ? bundledData + ":" + existingData : bundledData;
+    g_subprocess_launcher_setenv(launcher, "XDG_DATA_DIRS", dataDirectories.c_str(), true);
+    const auto loaderCache = (resources / "lib" / "gdk-pixbuf-2.0" / "2.10.0" / "loaders.cache").string();
+    g_subprocess_launcher_setenv(launcher, "GDK_PIXBUF_MODULE_FILE", loaderCache.c_str(), true);
+}
+#endif
 
 auto main(int argc, char* argv[]) -> int {
     GError* err = nullptr;
@@ -148,19 +134,19 @@ auto main(int argc, char* argv[]) -> int {
             // Add UTF-8 encoded arguments
             for (const auto& arg: utf8_args) {
                 subargv.emplace_back(arg.c_str());
-                errorlog << " " << arg;
+                errorlog << " [document]";
             }
         } else {
             // Fallback to original argv if CommandLineToArgvW fails
             for (int i = 1; i < argc; i++) {
                 subargv.emplace_back(argv[i]);
-                errorlog << " " << argv[i];
+                errorlog << " [document]";
             }
         }
 #else
         for (int i = 1; i < argc; i++) {
             subargv.emplace_back(argv[i]);
-            errorlog << " " << argv[i];
+            errorlog << " [document]";
         }
 #endif
         subargv.emplace_back(nullptr);
@@ -169,6 +155,9 @@ auto main(int argc, char* argv[]) -> int {
         xoj::util::GObjectSPtr<GSubprocessLauncher> launcher(g_subprocess_launcher_new(FLAGS), xoj::util::adopt);
         g_subprocess_launcher_set_environ(launcher.get(), nullptr);  // Copies the host's environment
         g_subprocess_launcher_setenv(launcher.get(), "G_MESSAGES_DEBUG", G_LOG_DOMAIN, false);  // Print xopp debug
+#ifdef __APPLE__
+        configurePrivateRuntimeDirectories(launcher.get());
+#endif
 
         return xoj::util::GObjectSPtr<GSubprocess>(g_subprocess_launcher_spawnv(launcher.get(), subargv.data(), &err),
                                                    xoj::util::adopt);
@@ -187,8 +176,8 @@ auto main(int argc, char* argv[]) -> int {
         xoj::util::OwnedCString stderrBuffer;
 #endif
 
-        std::cout << "Xournal++ started with PID: " << g_subprocess_get_identifier(p.get()) << std::endl;
-        errorlog << "Xournal++ started with PID: " << g_subprocess_get_identifier(p.get()) << std::endl;
+        std::cout << "StudySzn Marker started with PID: " << g_subprocess_get_identifier(p.get()) << std::endl;
+        errorlog << "StudySzn Marker started with PID: " << g_subprocess_get_identifier(p.get()) << std::endl;
 
         g_subprocess_communicate_utf8(p.get(), nullptr, nullptr, stdoutBuffer.contentReplacer(),
 #ifdef _WIN32  // On Windows, STDERR_MERGE does not work. See https://gitlab.gnome.org/GNOME/glib/-/issues/3723
@@ -226,11 +215,12 @@ auto main(int argc, char* argv[]) -> int {
         errorlog << xoj::util::getVersionInfo();
         errorlog << "  (The GDK backend is probably printed out below)\n";
 
-        errorlog << "\n*** Output: ***\n\n" << stdoutBuffer.get();
-
-#ifdef _WIN32
-        errorlog << "\n\n*** Cerr: ***\n\n" << stderrBuffer.get();
-#endif
+        const std::string childOutput = stdoutBuffer.get() ? stdoutBuffer.get() : "";
+        std::smatch emergencySave;
+        if (std::regex_search(childOutput, emergencySave, std::regex(EMERGENCY_SAVE_MSG_REGEX))) {
+            errorlog << emergencySave[0].str() << "\n";
+        }
+        errorlog << "\nApplication output was omitted to protect student-document privacy.\n";
     }
 
     g_set_prgname("com.studyszn.marker.wrapper");

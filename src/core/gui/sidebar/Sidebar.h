@@ -84,6 +84,7 @@ public:
      * Open a teacher-marking manifest and select the Marking tab.
      */
     void openMarkingManifest(const fs::path& path);
+    void restoreMarkingManifest(const fs::path& path);
 
 public:
     // DocumentListener interface

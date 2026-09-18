@@ -46,4 +46,6 @@ if (EXISTS "${PROJECT_SOURCE_DIR}/.git" AND PATH_GIT)
   endif ()
 endif ()
 
-set (PROJECT_CRASHREPORT "https://github.com/xournalpp/xournalpp/issues/new?template=crash_report.yml")
+# Crash reporting is intentionally disabled in StudySzn Marker. Teacher logs can
+# contain student-document paths and must remain local unless explicitly redacted.
+set (PROJECT_CRASHREPORT "")

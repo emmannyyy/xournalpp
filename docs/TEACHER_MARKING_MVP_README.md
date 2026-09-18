@@ -11,6 +11,9 @@ revise comments, verdicts, question-part mapping, and marks before exporting a r
 - STEM page-box feedback with atomic marks linked to part totals.
 - A dedicated Marking sidebar with score, review progress, filters, navigation, and
   editable feedback details.
+- Authoritative question-part scoring for both economics and STEM, without overwriting
+  sibling evidence boxes.
+- Automatic saving when moving between feedback cards, plus one-click review completion.
 - Colour- and line-style-coded visual boxes on a generated StudySzn feedback layer.
 - Add feedback from the current selection.
 - Move or resize feedback boxes using Xournal++ selection tools and synchronise the
@@ -60,11 +63,12 @@ python3 scripts/teacher-marking/create_demo.py
 
 The files are written under `.marking-local/demo/`:
 
-- `submission.pdf`
+- `humanities-submission.pdf`
+- `stem-submission.pdf`
 - `humanities-debox.xoppmark`
 - `stem-page-boxes.xoppmark`
 
-Open `submission.pdf`, then use **Import draft** in the Marking sidebar. A manifest may
+Open the matching PDF, then use **Import draft** in the Marking sidebar. A manifest may
 also be opened directly from the command line.
 
 ## Teacher workflow
@@ -72,13 +76,34 @@ also be opened directly from the command line.
 1. Open the student's source PDF.
 2. Import the matching `.xoppmark` draft.
 3. Select a feedback card to jump to its page and reveal its details.
-4. Edit the verdict, part ID, marks, comment, or improvement guidance, then click
-   **Apply changes**.
+4. Edit the verdict, question-part score, comment, or improvement guidance. Moving to
+   another card saves the current changes automatically.
 5. Use the normal selection tool to move or resize a feedback box.
 6. Select a region and click **Add from selection** to create teacher-authored feedback.
 7. Save the visual document as `.xopp`.
-8. Click **Export revised** to synchronise geometry, validate the draft, and save the
-   structured result.
+8. Use **Mark all feedback reviewed** after checking the cards, then click **Export
+   review** to synchronise geometry, validate every item, and save a portable folder
+   containing the structured result and source PDF.
+
+Exports include a SHA-256 binding to the source PDF. Marker refuses to open a revised
+review beside a different PDF with the same filename.
+
+## Installing the macOS prototype
+
+1. Download `StudySzn-Marker.zip` from the GitHub release (the CI build also
+   publishes a DMG).
+2. Unzip it and drag **StudySzn Marker.app** into Applications.
+3. On first launch of an ad-hoc prototype build, Control-click the app, choose **Open**,
+   then confirm **Open**. A future Developer ID build will remove this one-time step.
+
+The app bundle is relocatable and contains its GTK, Poppler, and other runtime libraries;
+Homebrew is not required on the teacher's Mac. Packaged settings, recents, metadata, and
+autosaves are kept under `~/Library/Application Support/StudySzn Marker/`, separately
+from Xournal++.
+
+StudySzn Marker is distributed under GPL-2.0-or-later. The app contains a copy of the
+license, and the complete corresponding source for each prototype release is available
+from the release tag in this repository.
 
 ## Private Fortify trial
 
@@ -91,8 +116,8 @@ FORTIFY_ENV_FILE=/path/to/fortify/.env \
   SCRIPT_UUID .marking-local/my-trial
 ```
 
-For STEM/page-box exports, also pass `--mode page-boxes
---cancelled-work-excluded` after checking that the producer excluded cancelled work.
+For STEM/page-box exports, also pass `--mode page-boxes --cancelled-work-excluded`
+after checking that the producer excluded cancelled work.
 
 Real student PDFs and payloads must remain under `.marking-local/`, which is gitignored.
 Never add them to tests, screenshots, releases, issues, or commits.
@@ -115,4 +140,7 @@ conflicting text/diagram anchors.
 - Export remains local and does not sync back to Fortify.
 - Structured feedback is stored beside the `.xopp`; it is not embedded inside it.
 - Re-importing a manifest deterministically rebuilds the generated feedback layer.
-- Only the macOS development build has been exercised in this prototype.
+- The current public build is ad-hoc signed. Developer ID signing and Apple notarisation
+  require release credentials that are not stored in this repository.
+- The current local artifact requires Apple Silicon and macOS 15 or newer. CI can build
+  each configured runner architecture separately.

@@ -90,6 +90,14 @@
     ${project}/icon/xournalpp.icns
   </data>
 
+  <data dest="${bundle}/Contents/Resources/LICENSE-GPL-2.0-or-later.txt">
+    ${project}/../LICENSE
+  </data>
+
+  <data dest="${bundle}/Contents/Resources/THIRD-PARTY-NOTICES.txt">
+    ${project}/../copyright.txt
+  </data>
+
   <data dest="${bundle}/Contents/Resources/share/glib-2.0/schemas">
     ${prefix}/share/glib-2.0/schemas
   </data>

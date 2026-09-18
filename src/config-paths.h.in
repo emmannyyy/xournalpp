@@ -14,7 +14,7 @@
 /**
  * Path to current source directory
  */
-#define PROJECT_SOURCE_DIR "@PROJECT_SOURCE_DIR@"
+#define PROJECT_SOURCE_DIR "@CONFIG_PROJECT_SOURCE_DIR@"
 
 /**
  * Path to install directory (for integration test)

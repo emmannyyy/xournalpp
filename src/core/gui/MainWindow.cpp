@@ -565,6 +565,13 @@ void MainWindow::setSidebarVisible(bool visible) {
     gtk_widget_set_visible(sidebarWidget.get(), visible);
 }
 
+void MainWindow::ensureSidebarWidth(int minimumWidth) {
+    if (this->control->getSettings()->getSidebarWidth() < minimumWidth) {
+        this->control->getSettings()->setSidebarWidth(minimumWidth);
+    }
+    updatePanedPosition(gtk_widget_get_width(boxContainerWidget.get()));
+}
+
 /**
  * Invert the position of the paned widget and disconnect from the signal.
  * @param handlerId should be the ID of the signal handler that should be disconnected.

@@ -37,6 +37,7 @@ public:
     GtkWidget* getWidget() override;
     void documentChanged(DocumentChangeType type) override;
     void openManifest(const fs::path& path);
+    void restoreManifest(const fs::path& path);
 
 private:
     struct RowContext {
@@ -49,9 +50,16 @@ private:
     void updateHeader();
     void showAnnotation(size_t index);
     void navigateToAnnotation(size_t index);
+    void navigateRelative(int direction);
+    void changeSelectedPart();
+    [[nodiscard]] bool commitDetailEdits();
+    void saveWorkingManifest();
+    [[nodiscard]] bool checkpointRecoveryState(bool reportFailure = false);
     void applyDetailEdits();
+    void markAllReviewed();
     void addAnnotationFromSelection();
-    void importManifest(const fs::path& path);
+    void importManifest(const fs::path& path, bool allowSourcePdfSwitch);
+    void activateManifest(xoj::marking::MarkingDocument draft, const fs::path& path, const fs::path& sourcePath);
     void exportManifest(const fs::path& path);
     void materializeAnnotations();
     void syncAnnotationGeometry();
@@ -64,11 +72,13 @@ private:
     GtkWidget* scoreLabel{};
     GtkWidget* filterCombo{};
     GtkWidget* listBox{};
+    GtkWidget* detailScroll{};
     GtkWidget* detailBox{};
     GtkWidget* detailTitle{};
     GtkWidget* detailPart{};
     GtkWidget* detailComment{};
     GtkWidget* detailHowToImprove{};
+    GtkWidget* detailEvidence{};
     GtkWidget* detailVerdict{};
     GtkWidget* detailReviewed{};
     GtkWidget* detailAwarded{};
@@ -79,5 +89,7 @@ private:
     std::optional<fs::path> manifestPath;
     std::optional<fs::path> boundSourcePdf;
     std::optional<size_t> selectedAnnotation;
+    std::optional<size_t> highlightedPage;
     std::unordered_map<std::string, Element*> annotationElements;
+    guint recoveryTimeoutId{};
 };

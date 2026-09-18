@@ -85,6 +85,7 @@ public:
     std::string student;
     MarkingMode mode{MarkingMode::PageBoxes};
     std::string sourcePdf;
+    std::string sourceSha256;
     bool cancelledWorkExcluded{false};
     std::vector<MarkingPart> parts;
     std::vector<MarkingAnnotation> annotations;

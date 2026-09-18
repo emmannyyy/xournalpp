@@ -2,6 +2,7 @@
 
 #include <charconv>
 #include <fstream>
+#include <locale>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -96,6 +97,7 @@ void startElement(GMarkupParseContext*, const gchar* elementName, const gchar** 
             state.document.title = attribute(names, values, "title").value_or("");
             state.document.student = attribute(names, values, "student").value_or("");
             state.document.sourcePdf = attribute(names, values, "source-pdf").value_or("");
+            state.document.sourceSha256 = attribute(names, values, "source-sha256").value_or("");
             state.document.cancelledWorkExcluded =
                     boolAttribute(names, values, "cancelled-work-excluded", false);
             auto mode = markingModeFromString(attribute(names, values, "mode").value_or(""));
@@ -117,7 +119,10 @@ void startElement(GMarkupParseContext*, const gchar* elementName, const gchar** 
             annotation.page = numberAttribute<size_t>(names, values, "page", 0);
             annotation.partId = requiredAttribute(names, values, "part-id");
             auto verdict = verdictFromString(attribute(names, values, "verdict").value_or(""));
-            annotation.verdict = verdict.value_or(Verdict::Unresolved);
+            if (!verdict) {
+                throw std::runtime_error("Unknown annotation verdict");
+            }
+            annotation.verdict = *verdict;
             annotation.source = attribute(names, values, "source").value_or("ai");
             annotation.severity = attribute(names, values, "severity").value_or("");
             annotation.targetType = attribute(names, values, "target-type").value_or("image");
@@ -234,16 +239,20 @@ MarkingDocument MarkingXml::load(const fs::path& path) {
 }
 
 void MarkingXml::save(const MarkingDocument& document, const fs::path& path) {
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    auto temporaryPath = path;
+    temporaryPath += ".tmp";
+    std::ofstream output(temporaryPath, std::ios::binary | std::ios::trunc);
     if (!output) {
         throw std::runtime_error("Could not create marking manifest");
     }
+    output.imbue(std::locale::classic());
 
     output << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     output << "<marking version=\"" << document.version << "\">\n";
     output << "  <assignment id=\"" << escape(document.assignmentId) << "\" title=\"" << escape(document.title)
            << "\" student=\"" << escape(document.student) << "\" mode=\"" << toString(document.mode)
-           << "\" source-pdf=\"" << escape(document.sourcePdf) << "\" cancelled-work-excluded=\""
+           << "\" source-pdf=\"" << escape(document.sourcePdf) << "\" source-sha256=\""
+           << escape(document.sourceSha256) << "\" cancelled-work-excluded=\""
            << (document.cancelledWorkExcluded ? "true" : "false") << "\"/>\n";
     output << "  <score awarded=\"" << document.awardedMarks() << "\" max=\"" << document.maxMarks() << "\"/>\n";
     output << "  <parts>\n";
@@ -281,6 +290,19 @@ void MarkingXml::save(const MarkingDocument& document, const fs::path& path) {
 
     if (!output) {
         throw std::runtime_error("Could not write marking manifest");
+    }
+    output.close();
+    if (!output) {
+        std::error_code removeError;
+        fs::remove(temporaryPath, removeError);
+        throw std::runtime_error("Could not finish writing marking manifest");
+    }
+    std::error_code renameError;
+    fs::rename(temporaryPath, path, renameError);
+    if (renameError) {
+        std::error_code removeError;
+        fs::remove(temporaryPath, removeError);
+        throw std::runtime_error("Could not replace marking manifest: " + renameError.message());
     }
 }
 

@@ -12,6 +12,7 @@
 #include "control/Control.h"                         // for Control
 #include "control/settings/Settings.h"               // for Settings
 #include "gui/GladeGui.h"                            // for GladeGui
+#include "gui/MainWindow.h"                          // for MainWindow
 #include "gui/sidebar/AbstractSidebarPage.h"         // for AbstractSidebar...
 #include "gui/sidebar/indextree/SidebarIndexPage.h"  // for SidebarIndexPage
 #include "gui/sidebar/marking/SidebarMarkingPage.h"  // for SidebarMarkingPage
@@ -53,7 +54,11 @@ void Sidebar::initTabs(GtkWidget* sidebarContents) {
         GtkWidget* btn = gtk_toggle_button_new();
         p->tabButton = btn;
 
-        gtk_button_set_icon_name(GTK_BUTTON(btn), p->getIconName().c_str());
+        if (i == this->markingTabIndex) {
+            gtk_button_set_label(GTK_BUTTON(btn), _("Marking"));
+        } else {
+            gtk_button_set_icon_name(GTK_BUTTON(btn), p->getIconName().c_str());
+        }
         g_signal_connect_data(btn, "clicked", G_CALLBACK(&buttonClicked), new SidebarTabButton(this, i, p.get()),
                               xoj::util::closure_notify_cb<SidebarTabButton>, GConnectFlags(0));
         gtk_widget_set_tooltip_text(btn, p->getName().c_str());
@@ -123,8 +128,21 @@ void Sidebar::openMarkingManifest(const fs::path& path) {
     if (this->markingPage == nullptr) {
         return;
     }
+    constexpr int MARKING_SIDEBAR_WIDTH = 360;
     this->markingPage->openManifest(path);
     this->control->setShowSidebar(true);
+    this->control->getWindow()->ensureSidebarWidth(MARKING_SIDEBAR_WIDTH);
+    this->setSelectedTab(this->markingTabIndex);
+}
+
+void Sidebar::restoreMarkingManifest(const fs::path& path) {
+    if (this->markingPage == nullptr) {
+        return;
+    }
+    constexpr int MARKING_SIDEBAR_WIDTH = 360;
+    this->markingPage->restoreManifest(path);
+    this->control->setShowSidebar(true);
+    this->control->getWindow()->ensureSidebarWidth(MARKING_SIDEBAR_WIDTH);
     this->setSelectedTab(this->markingTabIndex);
 }
 
@@ -133,9 +151,12 @@ void Sidebar::updateVisibleTabs() {
     size_t selected = npos;
 
     for (auto&& p: this->tabs) {
-        gtk_widget_set_visible(GTK_WIDGET(p->tabButton), p->hasData());
+        const bool available = p->hasData();
+        gtk_widget_set_visible(GTK_WIDGET(p->tabButton), available);
 
-        if (p->hasData() && selected == npos) {
+        if (available && i == this->currentTabIdx) {
+            selected = i;
+        } else if (available && selected == npos) {
             selected = i;
         }
 

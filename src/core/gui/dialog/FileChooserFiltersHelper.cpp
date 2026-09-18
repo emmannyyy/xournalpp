@@ -25,6 +25,7 @@ void addFilterSupported(GtkFileChooser* fc) {
     gtk_file_filter_add_mime_type(filterSupported, "application/x-xopt");
     gtk_file_filter_add_mime_type(filterSupported, "application/pdf");
     gtk_file_filter_add_pattern(filterSupported, "*.moj");  // MrWriter
+    gtk_file_filter_add_pattern(filterSupported, "*.xoppmark");
     gtk_file_chooser_add_filter(fc, filterSupported);
 }
 

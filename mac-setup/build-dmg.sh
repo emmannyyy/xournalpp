@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 [ $# -lt 2 ] && echo "Usage: $0 <.app folder> <output path>" && exit 1
 
 APP_NAME="$1"
@@ -13,7 +15,7 @@ mkdir -p "$TMP_MOUNTPOINT"
 
 # Create the image.
 # If there is not enough space when copying, the size should be increased.
-hdiutil create -size 256m -fs HFS+ -volname "Xournal++" "$TMP_DMG"
+hdiutil create -size 256m -fs HFS+ -volname "StudySzn Marker" "$TMP_DMG"
 hdiutil attach "$TMP_DMG" -mountpoint "$TMP_MOUNTPOINT"
 echo "Copying app"
 cp -r "$APP_NAME" "$TMP_MOUNTPOINT"/
@@ -24,7 +26,7 @@ ln -s /Applications/ "$TMP_MOUNTPOINT"/Applications
 unmounting_attempts=0
 until
     echo "Unmounting disk image..."
-    (( unmounting_attempts++ ))
+    unmounting_attempts=$((unmounting_attempts + 1))
     hdiutil detach "$TMP_MOUNTPOINT"
     exit_code=$?
     (( exit_code ==  0 )) && break            # nothing goes wrong

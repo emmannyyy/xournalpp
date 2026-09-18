@@ -9,6 +9,7 @@ the gitignored `.marking-local/` directory.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -103,6 +104,7 @@ def anchor_node(parent: ET.Element, annotation: dict[str, Any]) -> None:
 def build_manifest(
     row: dict[str, Any],
     source_filename: str,
+    source_sha256: str,
     mode: str,
     cancelled_work_excluded: bool,
 ) -> tuple[ET.ElementTree, int]:
@@ -116,6 +118,7 @@ def build_manifest(
             "student": text(row.get("student_name")),
             "mode": mode,
             "source-pdf": source_filename,
+            "source-sha256": source_sha256,
             "cancelled-work-excluded": "true" if cancelled_work_excluded else "false",
         },
     )
@@ -244,7 +247,7 @@ def main() -> int:
     base_url = (
         os.environ.get("FORTIFY_SUPABASE_URL")
         or file_env.get("VITE_FORTIFYDATABASE_URL")
-        or "https://gdpzixrljadkuzqaoxsx.supabase.co"
+        or ""
     ).rstrip("/")
     service_key = (
         os.environ.get("FORTIFY_SERVICE_KEY")
@@ -285,10 +288,16 @@ def main() -> int:
         print("The script has no source PDF storage path", file=sys.stderr)
         return 1
 
+    pdf_url = (
+        f"{base_url}/storage/v1/object/teacher-marking-uploads/"
+        f"{quote(storage_path, safe='/')}"
+    )
     source_filename = "submission.pdf"
+    source_bytes = request(pdf_url, service_key)
     manifest, skipped = build_manifest(
         row,
         source_filename,
+        hashlib.sha256(source_bytes).hexdigest(),
         mode,
         args.cancelled_work_excluded or mode == "debox",
     )
@@ -300,11 +309,7 @@ def main() -> int:
         return 1
 
     args.output_directory.mkdir(parents=True, exist_ok=True)
-    pdf_url = (
-        f"{base_url}/storage/v1/object/teacher-marking-uploads/"
-        f"{quote(storage_path, safe='/')}"
-    )
-    (args.output_directory / source_filename).write_bytes(request(pdf_url, service_key))
+    (args.output_directory / source_filename).write_bytes(source_bytes)
 
     manifest_path = args.output_directory / "marking.xoppmark"
     manifest.write(manifest_path, encoding="utf-8", xml_declaration=True)

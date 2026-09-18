@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <locale>
 #include <regex>
 
 #include <gtest/gtest.h>
@@ -81,17 +82,12 @@ TEST(MarkingDocument, EnforcesModeSpecificContracts) {
 
     EXPECT_TRUE(stem.updatePartMarks("q1-a", 0.0, 1.0));
     EXPECT_DOUBLE_EQ(stem.awardedMarks(), 0.0);
-    EXPECT_DOUBLE_EQ(stem.annotations.front().awardedMarks, 0.0);
-    stem.parts.front().awardedMarks = 1.0;
+    EXPECT_DOUBLE_EQ(stem.annotations.front().awardedMarks, 1.0);
     stem.annotations.front().textAnchor = TextAnchor{"p1-b1", "not allowed"};
     const auto stemIssues = stem.validate(1, true);
     EXPECT_TRUE(std::any_of(stemIssues.begin(), stemIssues.end(), [](const auto& issue) {
         return issue.message == "Page-box annotations must not contain extracted-document anchors";
     }));
-    EXPECT_TRUE(std::any_of(stemIssues.begin(), stemIssues.end(), [](const auto& issue) {
-        return issue.message == "Page-box annotation marks must match its authoritative part score";
-    }));
-
     MarkingDocument debox;
     debox.title = "Synthetic economics paper";
     debox.mode = MarkingMode::Debox;
@@ -111,6 +107,29 @@ TEST(MarkingDocument, EnforcesModeSpecificContracts) {
     }));
 }
 
+TEST(MarkingDocument, PartScoresDoNotOverwriteStemEvidenceBoxes) {
+    MarkingDocument document;
+    document.mode = MarkingMode::PageBoxes;
+    document.parts.push_back({"q1", "Question 1", 2.0, 3.0, ""});
+    document.annotations.push_back(MarkingAnnotation{
+            .id = "method",
+            .partId = "q1",
+            .awardedMarks = 1.0,
+            .maxMarks = 1.0,
+    });
+    document.annotations.push_back(MarkingAnnotation{
+            .id = "answer",
+            .partId = "q1",
+            .awardedMarks = 0.0,
+            .maxMarks = 1.0,
+    });
+
+    ASSERT_TRUE(document.updatePartMarks("q1", 1.5, 3.0));
+    EXPECT_DOUBLE_EQ(document.parts.front().awardedMarks, 1.5);
+    EXPECT_DOUBLE_EQ(document.annotations[0].awardedMarks, 1.0);
+    EXPECT_DOUBLE_EQ(document.annotations[1].awardedMarks, 0.0);
+}
+
 TEST(MarkingXml, RoundTripsHumanitiesAndStemAnchors) {
     MarkingDocument original;
     original.assignmentId = "demo";
@@ -118,6 +137,7 @@ TEST(MarkingXml, RoundTripsHumanitiesAndStemAnchors) {
     original.student = "Anonymous";
     original.mode = MarkingMode::Debox;
     original.sourcePdf = "submission.pdf";
+    original.sourceSha256 = std::string(64, 'a');
     original.parts.push_back({"q2-a", "Question 2(a)", 8.0, 10.0, "Sound analysis"});
     original.annotations.push_back(MarkingAnnotation{
             .id = "a01",
@@ -155,12 +175,37 @@ TEST(MarkingXml, RoundTripsHumanitiesAndStemAnchors) {
     ASSERT_EQ(loaded.parts.size(), 1U);
     EXPECT_EQ(loaded.assignmentId, original.assignmentId);
     EXPECT_EQ(loaded.mode, MarkingMode::Debox);
+    EXPECT_EQ(loaded.sourceSha256, original.sourceSha256);
     EXPECT_EQ(loaded.annotations[0].textAnchor->exact, "scarce resources");
     EXPECT_EQ(loaded.annotations[0].source, "ai");
     EXPECT_EQ(loaded.annotations[0].howToImprove, "Keep this precision.");
     EXPECT_EQ(loaded.annotations[0].evidenceFromScript, "scarce resources");
     EXPECT_EQ(loaded.annotations[1].diagramAnchor->blockId, "p3-d1");
     EXPECT_EQ(loaded.annotations[1].box.asArray(), (std::array<int, 4>{300, 150, 650, 850}));
+}
+
+TEST(MarkingXml, WritesLocaleIndependentMarks) {
+    class CommaDecimal final: public std::numpunct<char> {
+    protected:
+        char do_decimal_point() const override { return ','; }
+    };
+
+    MarkingDocument original;
+    original.title = "Locale test";
+    original.mode = MarkingMode::Debox;
+    original.sourcePdf = "submission.pdf";
+    original.parts.push_back({"q1", "Question 1", 1.5, 2.5, ""});
+
+    const auto path = std::filesystem::temp_directory_path() / "xournalpp-marking-locale.xoppmark";
+    const auto previous = std::locale::global(std::locale(std::locale::classic(), new CommaDecimal));
+    MarkingXml::save(original, path);
+    std::locale::global(previous);
+    const auto loaded = MarkingXml::load(path);
+    std::filesystem::remove(path);
+
+    ASSERT_EQ(loaded.parts.size(), 1U);
+    EXPECT_DOUBLE_EQ(loaded.parts.front().awardedMarks, 1.5);
+    EXPECT_DOUBLE_EQ(loaded.parts.front().maxMarks, 2.5);
 }
 
 TEST(MarkingXml, LoadsPublicWorkflowFixtures) {
@@ -180,6 +225,36 @@ TEST(MarkingXml, LoadsPublicWorkflowFixtures) {
         EXPECT_EQ(contents.find("https://"), std::string::npos);
         EXPECT_FALSE(std::regex_search(
                 contents, std::regex(R"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")));
+    }
+}
+
+TEST(MarkingXml, CompletesTeacherEditReviewExportReloadWorkflow) {
+    const auto root = std::filesystem::path(PROJECT_SOURCE_DIR) / "test" / "resources" / "marking";
+    for (const auto& filename: {"humanities-debox.xoppmark", "stem-page-boxes.xoppmark"}) {
+        auto document = MarkingXml::load(root / filename);
+        ASSERT_FALSE(document.parts.empty());
+        ASSERT_FALSE(document.annotations.empty());
+
+        auto& part = document.parts.front();
+        const double revisedAward = part.maxMarks / 2.0;
+        ASSERT_TRUE(document.updatePartMarks(part.id, revisedAward, part.maxMarks));
+        document.annotations.front().comment = "Teacher-reviewed feedback";
+        for (auto& annotation: document.annotations) {
+            annotation.reviewed = true;
+        }
+
+        const auto exported = std::filesystem::temp_directory_path() / filename;
+        MarkingXml::save(document, exported);
+        const auto reloaded = MarkingXml::load(exported);
+        std::filesystem::remove(exported);
+
+        ASSERT_FALSE(reloaded.parts.empty());
+        ASSERT_FALSE(reloaded.annotations.empty());
+        EXPECT_DOUBLE_EQ(reloaded.parts.front().awardedMarks, revisedAward);
+        EXPECT_EQ(reloaded.annotations.front().comment, "Teacher-reviewed feedback");
+        EXPECT_TRUE(std::all_of(reloaded.annotations.begin(), reloaded.annotations.end(),
+                                [](const auto& annotation) { return annotation.reviewed; }));
+        EXPECT_TRUE(reloaded.validate(2, true).empty());
     }
 }
 

@@ -45,6 +45,9 @@ add_definitions(-D_USE_MATH_DEFINES)
 add_definitions(-DGDK_DISABLE_DEPRECATED -DGTK_DISABLE_DEPRECATED)
 
 include(CheckCXXCompilerFlag)
+if (CMAKE_BUILD_TYPE STREQUAL "Release" AND CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}=.>")
+endif()
 if (CMAKE_GENERATOR STREQUAL "Ninja")
     CHECK_CXX_COMPILER_FLAG("-fcolor-diagnostics" CLANG_HAS_COLOR)
     CHECK_CXX_COMPILER_FLAG("-fdiagnostics-color=always" GNU_HAS_COLOR)
@@ -86,7 +89,11 @@ configure_file(
 
 find_package(PkgConfig REQUIRED)
 
-set(PROJECT_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}")
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(PROJECT_INSTALL_DIR ".")
+else()
+    set(PROJECT_INSTALL_DIR "${CMAKE_INSTALL_PREFIX}")
+endif()
 
 # Git repo info
 include(GitRepo)
@@ -351,6 +358,11 @@ configure_file(
         ESCAPE_QUOTES @ONLY
 )
 
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CONFIG_PROJECT_SOURCE_DIR ".")
+else()
+    set(CONFIG_PROJECT_SOURCE_DIR "${PROJECT_SOURCE_DIR}")
+endif()
 configure_file(
         src/config-paths.h.in
         src/config-paths.h

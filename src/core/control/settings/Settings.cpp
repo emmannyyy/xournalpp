@@ -94,7 +94,7 @@ void Settings::loadDefault() {
     this->fullscreenActive = false;
 
     this->showSidebar = true;
-    this->sidebarWidth = 150;
+    this->sidebarWidth = 360;
     this->sidebarNumberingStyle = SidebarNumberingStyle::DEFAULT;
 
     this->showToolbar = true;
