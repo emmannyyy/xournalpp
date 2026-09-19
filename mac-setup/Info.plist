@@ -11,14 +11,14 @@
     <key>CFBundleIdentifier</key>
     <string>com.studyszn.marker</string>
     <key>CFBundleName</key>
-    <string>StudySzn Marker</string>
+    <string>StudySznMarker</string>
     <key>CFBundleDisplayName</key>
     <string>StudySzn Marker</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <key>CFBundleVersion</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>NSHumanReadableCopyright</key>

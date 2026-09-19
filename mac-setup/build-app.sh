@@ -25,6 +25,9 @@ cd "$(dirname "$0")" || exit
 # delete old app, if there
 echo "clean old app"
 rm -rf "./StudySzn Marker.app"
+rm -rf "./StudySznMarker.app"
+rm -rf "./.StudySzn Marker.app"
+rm -rf "./.StudySznMarker.app"
 
 echo "prepare gtk-mac-bundler"
 GTK_MAC_BUNDLER_VENV="$PWD"/gtk-mac-bundler-venv
@@ -77,11 +80,22 @@ fi
 
 echo "create package"
 
-export GTKDIR="$1/inst"
+SOURCE_GTKDIR="$1/inst"
 export BREWPREFIX="${BREWPREFIX:-$(brew --prefix)}"
-[ ! -d "$GTKDIR" ] && echo "$GTKDIR doesn't exist!" && exit 1
+[ ! -d "$SOURCE_GTKDIR" ] && echo "$SOURCE_GTKDIR doesn't exist!" && exit 1
+
+# gtk-mac-bundler invokes helper shell scripts that do not quote every path.
+# Stage the install tree under a private path without spaces and use a
+# no-space CFBundleName while bundling, then restore the teacher-facing name.
+BUNDLE_STAGING_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/studyszn-marker-bundle.XXXXXX")"
+trap 'rm -rf "$BUNDLE_STAGING_ROOT"' EXIT
+cp -R "$SOURCE_GTKDIR" "$BUNDLE_STAGING_ROOT/inst"
+export GTKDIR="$BUNDLE_STAGING_ROOT/inst"
 
 "$GTK_MAC_BUNDLER" xournalpp.bundle
+mv "./StudySznMarker.app" "./StudySzn Marker.app"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName StudySzn Marker" \
+  "./StudySzn Marker.app/Contents/Info.plist"
 
 echo "Replace Ctrl by Meta in mainmenubar.xml"
 sed -i -e 's/Ctrl/Meta/g' "./StudySzn Marker.app/Contents/Resources/ui/mainmenubar.xml"

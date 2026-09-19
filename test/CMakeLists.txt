@@ -62,6 +62,13 @@ target_link_libraries (test-units xoj::core xoj::util gtest)
 target_compile_features(test-units PRIVATE cxx_std_20)
 target_include_directories(test-units PRIVATE "${PROJECT_BINARY_DIR}/test")
 
+add_executable(fake-cursor-agent EXCLUDE_FROM_ALL fixtures/marking/FakeCursorAgent.cpp)
+target_compile_features(fake-cursor-agent PRIVATE cxx_std_20)
+add_dependencies(test-units fake-cursor-agent)
+target_compile_definitions(test-units PRIVATE
+  TEST_FAKE_CURSOR_AGENT="$<TARGET_FILE:fake-cursor-agent>"
+)
+
 ###############################################################################
 # Define test-gtk-integration
 ###############################################################################

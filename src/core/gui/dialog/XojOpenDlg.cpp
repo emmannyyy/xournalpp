@@ -193,7 +193,7 @@ void xoj::OpenDlg::showOpenImageDialog(GtkWindow* parent, Settings* settings,
 }
 
 void xoj::OpenDlg::showMultiFormatDialog(GtkWindow* parent, std::vector<std::string> formats,
-                                         std::function<void(fs::path)> callback) {
+                                         std::function<void(fs::path)> callback, fs::path initialFolder) {
     auto popup = xoj::popup::PopupWindowWrapper<FileDlg>(_("Open file"), std::move(callback));
 
     auto* fc = GTK_FILE_CHOOSER(popup.getPopup()->getWindow());
@@ -205,6 +205,9 @@ void xoj::OpenDlg::showMultiFormatDialog(GtkWindow* parent, std::vector<std::str
             gtk_file_filter_add_pattern(filterSupported, format.c_str());
         }
         gtk_file_chooser_add_filter(fc, filterSupported);
+    }
+    if (!initialFolder.empty()) {
+        gtk_file_chooser_set_current_folder(fc, initialFolder.string().c_str());
     }
 
     popup.show(parent);

@@ -19,10 +19,12 @@ revise comments, verdicts, question-part mapping, and marks before exporting a r
 - Move or resize feedback boxes using Xournal++ selection tools and synchronise the
   geometry when exporting.
 - Continue using normal pen, highlighter, text, undo/redo, `.xopp`, and PDF export tools.
+- An AI marking panel that sends the open student PDF, a selected answer key, and teacher
+  instructions to Cursor CLI, validates the structured result, and creates editable overlays.
+- Cancellation, a 15-minute timeout, bounded output, source-PDF fingerprint checks, and
+  transactional activation so a failed or stale run leaves the current review unchanged.
 
-AI marking generation and Fortify writes are intentionally outside this local MVP. Existing
-marking workflows produce the input manifest; this application is the human correction
-surface.
+Fortify writes remain outside this local MVP.
 
 ## Safe development launch
 
@@ -73,15 +75,18 @@ also be opened directly from the command line.
 
 ## Teacher workflow
 
-1. Open the student's source PDF.
-2. Import the matching `.xoppmark` draft.
-3. Select a feedback card to jump to its page and reveal its details.
-4. Edit the verdict, question-part score, comment, or improvement guidance. Moving to
+1. Install and authenticate Cursor CLI by running `agent login` in Terminal.
+2. Open the student's source PDF and select the **Marking** sidebar tab.
+3. Choose **Humanities / economics (debox)** or **STEM (page boxes)**, select an answer key,
+   adjust the teacher instructions, and click **Generate AI marking**. Existing `.xoppmark`
+   drafts can still be loaded with **Import draft**.
+4. Select a feedback card to jump to its page and reveal its details.
+5. Edit the verdict, question-part score, comment, or improvement guidance. Moving to
    another card saves the current changes automatically.
-5. Use the normal selection tool to move or resize a feedback box.
-6. Select a region and click **Add from selection** to create teacher-authored feedback.
-7. Save the visual document as `.xopp`.
-8. Use **Mark all feedback reviewed** after checking the cards, then click **Export
+6. Use the normal selection tool to move or resize a feedback box.
+7. Select a region and click **Add from selection** to create teacher-authored feedback.
+8. Save the visual document as `.xopp`.
+9. Use **Mark all feedback reviewed** after checking the cards, then click **Export
    review** to synchronise geometry, validate every item, and save a portable folder
    containing the structured result and source PDF.
 
@@ -136,7 +141,14 @@ conflicting text/diagram anchors.
 
 ## MVP limitations
 
-- The desktop app imports drafts; it does not invoke an AI model itself.
+- Cursor CLI is the only AI provider in this prototype. The runner boundary is isolated so an
+  OpenRouter adapter can be added without changing the marking UI or document model.
+- Cursor is an external model service: generating feedback sends the staged student PDF,
+  answer key, and teacher instructions to Cursor. The local staging folder does not make that
+  transfer local-only. Failed jobs are removed; a successful draft keeps its staged student PDF
+  locally for crash recovery until the teacher exports the review.
+- AI feedback is a draft. A teacher must review every comment, score, and overlay before
+  export.
 - Export remains local and does not sync back to Fortify.
 - Structured feedback is stored beside the `.xopp`; it is not embedded inside it.
 - Re-importing a manifest deterministically rebuilds the generated feedback layer.

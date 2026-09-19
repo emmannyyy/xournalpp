@@ -16,6 +16,7 @@
 #include <gtk/gtk.h>
 
 #include "gui/sidebar/AbstractSidebarPage.h"
+#include "marking/MarkingAiRunner.h"
 #include "marking/MarkingDocument.h"
 
 #include "filesystem.h"
@@ -57,7 +58,13 @@ private:
     [[nodiscard]] bool checkpointRecoveryState(bool reportFailure = false);
     void applyDetailEdits();
     void markAllReviewed();
+    void deleteSelectedAnnotation();
     void addAnnotationFromSelection();
+    void chooseAiRubric();
+    void runAiMarking();
+    void cancelAiMarking();
+    void finishAiMarking(xoj::marking::AiMarkingResult result);
+    void updateAiControls(bool running, const std::string& status);
     void importManifest(const fs::path& path, bool allowSourcePdfSwitch);
     void activateManifest(xoj::marking::MarkingDocument draft, const fs::path& path, const fs::path& sourcePath);
     void exportManifest(const fs::path& path);
@@ -84,7 +91,19 @@ private:
     GtkWidget* detailAwarded{};
     GtkWidget* detailMax{};
     GtkWidget* exportButton{};
+    GtkWidget* aiWorkflow{};
+    GtkWidget* aiRubricButton{};
+    GtkWidget* aiRubricLabel{};
+    GtkWidget* aiInstructions{};
+    GtkWidget* aiRunButton{};
+    GtkWidget* aiCancelButton{};
+    GtkWidget* aiStatus{};
 
+    xoj::marking::MarkingAiRunner aiRunner;
+    std::optional<fs::path> aiRubricPath;
+    std::string activeAiSourceSha;
+    std::optional<std::string> activeAiDraftSha;
+    xoj::marking::AiMarkingWorkflow activeAiWorkflow{xoj::marking::AiMarkingWorkflow::Debox};
     std::optional<xoj::marking::MarkingDocument> marking;
     std::optional<fs::path> manifestPath;
     std::optional<fs::path> boundSourcePdf;

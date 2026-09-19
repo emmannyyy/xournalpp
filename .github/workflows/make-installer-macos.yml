@@ -57,7 +57,7 @@ jobs:
           (cd build && cmake --build . --target install)
           (cd mac-setup && ./build-app.sh $HOME/gtk)
 
-          export VERSION="0.2.0"
+          export VERSION="0.3.0"
           export OUTPUT="StudySzn-Marker-$VERSION${{ inputs.artifact_version_suffix }}-macOS-${{runner.arch}}.dmg"
           export ZIP_OUTPUT="StudySzn-Marker-$VERSION${{ inputs.artifact_version_suffix }}-macOS-${{runner.arch}}.zip"
 

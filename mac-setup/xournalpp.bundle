@@ -6,8 +6,10 @@
     <prefix name="app">${env:GTKDIR}</prefix>
     <destination overwrite="yes">.</destination>
 
-    <!-- Comment this out to keep the install names in binaries -->
-    <run-install-name-tool/>
+    <!-- Keep source install names while gtk-mac-bundler runs its copied
+         Homebrew helpers. macOS 15 refuses to run those helpers after their
+         signatures are invalidated. relocate-bundle.py rewrites every Mach-O
+         path after bundling, immediately before sign-bundle.py signs them. -->
 
     <!-- Optionally specify a launcher script to use. If the
          application sets up everything needed itself, like
